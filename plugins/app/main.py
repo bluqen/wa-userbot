@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -64,7 +65,12 @@ async def handle_message(msg: IncomingMessage):
 
     # Record the incoming message regardless of whether anything replies to
     # it, so context is preserved for whenever AI Reply next needs it.
-    await save_message(msg.user_id, msg.from_jid, "user", msg.text)
+    # Fire-and-forget: reply generation below doesn't depend on this save
+    # completing, so there's no reason to block the critical path on a
+    # round trip to web's internal API for it -- save_message already
+    # swallows its own errors, so a failed save here is silently logged,
+    # same as before, just no longer serialized in front of the reply.
+    asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", msg.text))
 
     # Independent of any plugin's own cooldown setting: if this contact has
     # been sent an unusual number of auto-replies in the last minute, stop.
@@ -79,7 +85,10 @@ async def handle_message(msg: IncomingMessage):
             if plugin.match(ctx):
                 reply = plugin.handle(ctx)
                 if reply:
-                    await save_message(msg.user_id, msg.from_jid, "assistant", reply.text)
+                    # Same reasoning as above -- don't make the owner wait
+                    # for a history-save round trip before they get their
+                    # WhatsApp reply.
+                    asyncio.create_task(save_message(msg.user_id, msg.from_jid, "assistant", reply.text))
                     record_reply(msg.user_id, msg.from_jid)
                     return ReplyResponse(
                         reply=reply.text,

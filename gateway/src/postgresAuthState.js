@@ -15,6 +15,14 @@ function getPool() {
     pool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false },
+      // pg.Pool defaults to 10 -- Aiven's free tier caps total connections
+      // at 20 with several already reserved for its own background
+      // workers, so an uncapped pool here (plus web's Prisma pool, plus
+      // Render briefly running two instances of a service during a
+      // rolling deploy) can exhaust what's available. This service only
+      // ever does quick sequential auth-state reads/writes, so a small
+      // cap costs nothing in practice.
+      max: 3,
     });
   }
   return pool;

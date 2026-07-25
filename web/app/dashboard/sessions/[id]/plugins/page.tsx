@@ -77,6 +77,7 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               )}
               {plugin.key === 'ai_reply' && (
                 <AIReplySettings
+                  sessionId={params.id}
                   value={plugin.settings as AIReplySettingsValue}
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />

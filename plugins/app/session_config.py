@@ -27,16 +27,17 @@ async def fetch_session_plugins(session_id: str) -> List[dict]:
     and with what settings. Use fetch_session_context instead when you also
     need chat history for a specific contact.
     """
-    plugins, _ = await fetch_session_context(session_id, contact_jid=None)
+    plugins, _, _ = await fetch_session_context(session_id, contact_jid=None)
     return plugins
 
 
 async def fetch_session_context(
     session_id: str, contact_jid: Optional[str]
-) -> Tuple[List[dict], List[dict]]:
-    """Fetches plugin config, and -- when a contact is given -- recent chat
-    history with that contact, in a single request. Returns (plugins,
-    history); history is [] when no contact_jid is given.
+) -> Tuple[List[dict], List[dict], List[str]]:
+    """Fetches plugin config, sticker tags this session has saved, and --
+    when a contact is given -- recent chat history with that contact, all
+    in a single request. Returns (plugins, history, sticker_tags); history
+    is [] when no contact_jid is given.
     """
     params = {}
     if contact_jid:
@@ -50,7 +51,7 @@ async def fetch_session_context(
         )
         res.raise_for_status()
         data = res.json()
-        return data.get("plugins", []), data.get("history", [])
+        return data.get("plugins", []), data.get("history", []), data.get("stickerTags", [])
 
 
 async def save_message(session_id: str, contact_jid: str, role: str, text: str) -> None:

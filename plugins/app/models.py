@@ -19,6 +19,7 @@ class ReplyResponse(BaseModel):
     block_duration_hours: int = 0
     quote: bool = False
     parts: Optional[List[str]] = None
+    sticker_tag: Optional[str] = None
 
 
 class RewriteResponse(BaseModel):

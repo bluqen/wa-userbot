@@ -39,6 +39,8 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     allowBlocking: false,
     blockDurationHours: 0,
     humanlikeness: 0,
+    useSticker: true,
+    stickerChance: 0,
     exceptions: [],
   },
   ai_write: {

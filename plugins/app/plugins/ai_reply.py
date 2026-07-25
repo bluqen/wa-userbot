@@ -25,6 +25,18 @@ BLOCK_INSTRUCTIONS = (
     "a short, natural final reply alongside it if appropriate."
 )
 
+STICKER_MARKER_RE = re.compile(r"\[\[STICKER:([a-z0-9_-]+)\]\]", re.IGNORECASE)
+
+
+def _build_sticker_instructions(tags: List[str]) -> str:
+    return (
+        "\n\nYou may express yourself with a saved sticker if it genuinely fits, by "
+        f"including the exact text [[STICKER:tag]] (one tag from exactly this list: "
+        f"{', '.join(tags)}) anywhere in your reply -- it will be removed before "
+        "anything is sent, and that sticker sent alongside your text. Only "
+        "occasionally, only using one of the exact tags listed."
+    )
+
 # (session_id, contact_jid) -> unix timestamp of the last AI reply sent.
 _last_replied: dict[Tuple[str, str], float] = {}
 
@@ -137,6 +149,17 @@ class AIReplyPlugin(Plugin):
         if allow_blocking:
             system_prompt += BLOCK_INSTRUCTIONS
 
+        use_sticker = bool(config.get("useSticker", True))
+        sticker_chance = max(0, min(100, int(config.get("stickerChance", 0))))
+        offer_sticker = (
+            use_sticker
+            and sticker_chance > 0
+            and bool(ctx.sticker_tags)
+            and random.random() < (sticker_chance / 100)
+        )
+        if offer_sticker:
+            system_prompt += _build_sticker_instructions(ctx.sticker_tags)
+
         history_length = int(config.get("historyLength", 10))
         history = ctx.history[-history_length:] if history_length > 0 else []
 
@@ -158,6 +181,17 @@ class AIReplyPlugin(Plugin):
             text = text.replace(BLOCK_MARKER, "").strip()
         should_block = marker_present and allow_blocking and not is_group
 
+        # Same "strip regardless, act only if actually offered and valid"
+        # shape as the block marker -- guards against both leakage and a
+        # hallucinated/copied tag that was never actually in the offered list.
+        sticker_tag = None
+        sticker_match = STICKER_MARKER_RE.search(text)
+        if sticker_match:
+            text = STICKER_MARKER_RE.sub("", text).strip()
+            candidate = sticker_match.group(1).lower()
+            if offer_sticker and candidate in ctx.sticker_tags:
+                sticker_tag = candidate
+
         cooldown_minutes = config.get("cooldownMinutes", 0)
         if cooldown_minutes:
             _last_replied[(ctx.user_id, ctx.from_jid)] = time.time()
@@ -177,4 +211,5 @@ class AIReplyPlugin(Plugin):
             block_duration_hours=int(config.get("blockDurationHours", 0)) if should_block else 0,
             quote=quote,
             parts=parts,
+            sticker_tag=sticker_tag,
         )

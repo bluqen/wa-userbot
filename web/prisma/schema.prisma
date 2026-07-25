@@ -31,6 +31,7 @@ model WaSession {
   plugins     SessionPlugin[]
   messages    ChatMessage[]
   scheduledTasks ScheduledTask[]
+  stickers    Sticker[]
 
   @@index([userId])
 }
@@ -92,4 +93,22 @@ model ScheduledTask {
 
   @@index([sessionId])
   @@index([runAt, completedAt])
+}
+
+// Stickers the account owner has taught the bot via WhatsApp itself
+// (quote-reply to a sticker with "/savesticker <tag>" -- see
+// gateway/README.md). @@unique gives upsert-by-tag semantics for free:
+// re-saving a tag overwrites, the natural fix for a typo'd capture.
+// Stored directly in Postgres (Bytes/bytea) -- WhatsApp stickers are tiny
+// .webp files, no object storage service needed at this scale.
+model Sticker {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tag       String
+  data      Bytes
+  mimetype  String   @default("image/webp")
+  createdAt DateTime @default(now())
+
+  @@unique([sessionId, tag])
 }

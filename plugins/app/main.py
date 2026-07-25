@@ -59,12 +59,18 @@ async def handle_message(msg: IncomingMessage):
     print(f"[debug] incoming message from_jid={msg.from_jid!r} text={msg.text!r}")
 
     try:
-        configs, history = await fetch_session_context(msg.user_id, msg.from_jid)
+        configs, history, sticker_tags = await fetch_session_context(msg.user_id, msg.from_jid)
     except Exception as exc:
         print(f"[session:{msg.user_id}] failed to fetch plugin config: {exc}")
         return ReplyResponse(reply=None)
 
-    ctx = MessageContext(user_id=msg.user_id, from_jid=msg.from_jid, text=msg.text, history=history)
+    ctx = MessageContext(
+        user_id=msg.user_id,
+        from_jid=msg.from_jid,
+        text=msg.text,
+        history=history,
+        sticker_tags=sticker_tags,
+    )
 
     # Record the incoming message regardless of whether anything replies to
     # it, so context is preserved for whenever AI Reply next needs it.
@@ -104,6 +110,7 @@ async def handle_message(msg: IncomingMessage):
                         block_duration_hours=reply.block_duration_hours,
                         quote=reply.quote,
                         parts=reply.parts,
+                        sticker_tag=reply.sticker_tag,
                     )
         except Exception as exc:  # a broken plugin shouldn't take the whole engine down
             print(f"[plugin:{plugin.name}] error: {exc}")

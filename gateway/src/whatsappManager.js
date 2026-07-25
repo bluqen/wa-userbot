@@ -6,10 +6,70 @@ import {
   DisconnectReason,
   Browsers,
   jidNormalizedUser,
+  downloadMediaMessage,
 } from '@whiskeysockets/baileys';
 import { usePostgresAuthState, hasStoredCreds, clearAuthState } from './postgresAuthState.js';
 import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers } from './pluginClient.js';
-import { createScheduledTask } from './webClient.js';
+import { createScheduledTask, saveSticker, fetchSticker } from './webClient.js';
+
+const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
+
+// Lets the account owner teach the bot a sticker by quote-replying to an
+// existing sticker message with "/savesticker <tag>" -- see
+// gateway/README.md's "Sticker capture". Feedback is given by editing the
+// command message itself in place (same idiom AI Write already uses for
+// its own edits), not by sending a new visible message into whatever chat
+// the command happened to be used in.
+async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
+  const tag = rawTag.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  const quotedSticker = contextInfo?.quotedMessage?.stickerMessage;
+
+  if (!tag) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: 'Usage: /savesticker <tag> (reply to a sticker)', edit: msg.key },
+    );
+    return;
+  }
+  if (!quotedSticker) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `Reply directly to a sticker message with /savesticker ${tag}`, edit: msg.key },
+    );
+    return;
+  }
+
+  try {
+    // downloadMediaMessage auto-detects the media type from a WAMessage-
+    // shaped object; a quoted message isn't a real top-level message in
+    // this payload, so build a synthetic one around it. `.key` here is
+    // only used for logging/reupload-retry inside downloadMediaMessage,
+    // not the actual download.
+    const synthetic = {
+      key: {
+        remoteJid: contextInfo.remoteJid || msg.key.remoteJid,
+        id: contextInfo.stanzaId,
+        fromMe: false,
+      },
+      message: contextInfo.quotedMessage,
+    };
+    const buffer = await downloadMediaMessage(synthetic, 'buffer', {});
+    await saveSticker({
+      sessionId: userId,
+      tag,
+      data: buffer.toString('base64'),
+      mimetype: quotedSticker.mimetype || 'image/webp',
+    });
+    await sock.sendMessage(msg.key.remoteJid, { text: `Saved sticker as "${tag}"`, edit: msg.key });
+  } catch (err) {
+    console.error(`[${userId}] failed to save sticker "${tag}":`, err.message);
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `Failed to save sticker: ${err.message}`, edit: msg.key },
+    );
+  }
+}
 
 const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' });
 
@@ -108,6 +168,24 @@ export async function startSession(userId, phoneNumber) {
   // it can't grow unbounded.
   const sentMessages = new Map(); // message id -> proto message content
   const MAX_SENT_MESSAGES = 200;
+
+  // Baileys reports every message this account sends -- including ones the
+  // bot itself just generated (AI Reply text, split parts, stickers) -- back
+  // through messages.upsert as a fromMe:true event, same as anything the
+  // owner types by hand. Without this, those bot-sent messages would loop
+  // straight into ai_write's rewrite path, burning an extra LLM call per
+  // auto-reply for nothing and helping exhaust the free-tier rate limit.
+  // IDs are added right after sending and removed once seen once here.
+  const aiSentMessageIds = new Set();
+  const MAX_AI_SENT_IDS = 50;
+
+  function markAiSent(id) {
+    if (!id) return;
+    aiSentMessageIds.add(id);
+    if (aiSentMessageIds.size > MAX_AI_SENT_IDS) {
+      aiSentMessageIds.delete(aiSentMessageIds.values().next().value);
+    }
+  }
 
   // WhatsApp sometimes addresses a contact by an opaque "LID" (e.g.
   // `17206192644250@lid`) instead of their phone number in
@@ -257,6 +335,17 @@ export async function startSession(userId, phoneNumber) {
       const resolvedFrom = resolveRemoteJid(msg.key.remoteJid);
 
       if (msg.key.fromMe) {
+        if (aiSentMessageIds.has(msg.key.id)) {
+          aiSentMessageIds.delete(msg.key.id);
+          continue;
+        }
+
+        const saveStickerMatch = text.match(SAVE_STICKER_COMMAND);
+        if (saveStickerMatch) {
+          await handleSaveStickerCommand(userId, sock, msg, saveStickerMatch[1]);
+          continue;
+        }
+
         // A message the userbot owner sent themself (from this device or
         // any other linked device) -- offer it to ai_write for an instant
         // edit. Everything else below is about replying to messages from
@@ -273,7 +362,7 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
-        const { reply, showTyping, typingDelayMs, block, blockDurationHours, quote, parts } =
+        const { reply, showTyping, typingDelayMs, block, blockDurationHours, quote, parts, stickerTag } =
           await forwardMessage({ userId, from: resolvedFrom, text });
 
         if (reply) {
@@ -303,6 +392,7 @@ export async function startSession(userId, phoneNumber) {
                 sentMessages.delete(sentMessages.keys().next().value);
               }
             }
+            markAiSent(sent?.key?.id);
 
             if (showTyping) {
               await sock.sendPresenceUpdate('paused', msg.key.remoteJid);
@@ -311,6 +401,18 @@ export async function startSession(userId, phoneNumber) {
             if (i < messagesToSend.length - 1) {
               await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 800));
             }
+          }
+        }
+
+        if (stickerTag) {
+          try {
+            const buffer = await fetchSticker(userId, stickerTag);
+            if (buffer) {
+              const sentSticker = await sock.sendMessage(msg.key.remoteJid, { sticker: buffer });
+              markAiSent(sentSticker?.key?.id);
+            }
+          } catch (err) {
+            console.error(`[${userId}] failed to send sticker "${stickerTag}":`, err.message);
           }
         }
 

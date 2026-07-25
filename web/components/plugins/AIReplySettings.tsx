@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { personalitiesByCategory, getPersonality } from '@/lib/personalities';
 import ExceptionsEditor, { type Exception } from './ExceptionsEditor';
+import StickerManager from './StickerManager';
 
 export type AIReplySettingsValue = {
   personalityId: string;
@@ -16,15 +17,53 @@ export type AIReplySettingsValue = {
   allowBlocking: boolean;
   blockDurationHours: number;
   humanlikeness: number;
+  useSticker: boolean;
+  stickerChance: number;
   exceptions: Exception[];
 };
 
 const GROUPS = personalitiesByCategory();
 
+const HUMANLIKENESS_LEVELS = [
+  {
+    value: 0,
+    label: 'Off',
+    description: 'Consistent timing, always a single plain reply -- today’s default behavior.',
+  },
+  {
+    value: 25,
+    label: 'Subtle',
+    description: 'Slightly varied reply timing. Rarely swipe-replies or splits a reply in two.',
+  },
+  {
+    value: 50,
+    label: 'Natural',
+    description: 'Noticeably varied timing, and regularly swipe-replies or splits a reply in two.',
+  },
+  {
+    value: 75,
+    label: 'Expressive',
+    description: 'Wide timing swings, and frequently swipe-replies or splits a reply in two.',
+  },
+  {
+    value: 100,
+    label: 'Maximum',
+    description: 'Widest possible timing swings, swipe replies, and reply-splitting -- hardest to tell apart from a person typing.',
+  },
+] as const;
+
+function closestHumanlikenessLevel(value: number) {
+  return HUMANLIKENESS_LEVELS.reduce((closest, level) =>
+    Math.abs(level.value - value) < Math.abs(closest.value - value) ? level : closest,
+  );
+}
+
 export default function AIReplySettings({
+  sessionId,
   value,
   onSave,
 }: {
+  sessionId: string;
   value: AIReplySettingsValue;
   onSave: (value: AIReplySettingsValue) => Promise<void>;
 }) {
@@ -103,23 +142,67 @@ export default function AIReplySettings({
       <div>
         <div className="mb-1.5 flex items-center justify-between">
           <label className="text-sm font-medium text-slate-300">Humanlikeness</label>
-          <span className="text-xs text-slate-400">{form.humanlikeness}</span>
+          <span className="text-xs font-medium text-emerald-400">
+            {closestHumanlikenessLevel(form.humanlikeness).label}
+          </span>
         </div>
         <input
           type="range"
           min={0}
           max={100}
+          step={25}
           value={form.humanlikeness}
           onChange={(e) => setForm({ ...form, humanlikeness: Number(e.target.value) })}
           className="w-full accent-emerald-500"
         />
-        <p className="mt-1 text-xs text-slate-500">
-          0 = consistent timing, always a single plain reply (today&apos;s behavior). Higher =
-          more randomized reply timing, occasionally replying to the specific message (swipe
-          reply) instead of a new one, and occasionally splitting a reply into two quick messages
-          instead of one.
+        <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+          {HUMANLIKENESS_LEVELS.map((level) => (
+            <span key={level.value}>{level.label}</span>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {closestHumanlikenessLevel(form.humanlikeness).description}
         </p>
       </div>
+
+      <label className="flex items-center justify-between gap-4 text-sm">
+        <span>
+          Allow sending stickers
+          <span className="block text-xs text-slate-500">
+            Lets the AI send a saved sticker alongside a reply when it fits. Does nothing until
+            you&apos;ve saved at least one (see below).
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={form.useSticker}
+          onChange={(e) => setForm({ ...form, useSticker: e.target.checked })}
+          className="h-4 w-4 shrink-0"
+        />
+      </label>
+
+      {form.useSticker && (
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className="text-sm font-medium text-slate-300">Sticker chance</label>
+            <span className="text-xs text-slate-400">{form.stickerChance}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={form.stickerChance}
+            onChange={(e) => setForm({ ...form, stickerChance: Number(e.target.value) })}
+            className="w-full accent-emerald-500"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            0 = never (default). How often a reply might include a sticker, when one genuinely
+            fits.
+          </p>
+        </div>
+      )}
+
+      <StickerManager sessionId={sessionId} />
 
       <label className="flex items-center justify-between gap-4 text-sm">
         <span>
@@ -276,6 +359,20 @@ export default function AIReplySettings({
                   className="w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-emerald-500/50 focus:ring-2"
                 />
               )}
+              <label className="flex items-center justify-between text-xs text-slate-400">
+                <span>Allow stickers with this contact</span>
+                <input
+                  type="checkbox"
+                  checked={overrides.useSticker !== false}
+                  onChange={(e) =>
+                    setOverrides({
+                      ...overrides,
+                      useSticker: e.target.checked ? undefined : false,
+                    })
+                  }
+                  className="h-3.5 w-3.5"
+                />
+              </label>
             </div>
           );
         }}

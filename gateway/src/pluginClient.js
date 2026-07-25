@@ -23,6 +23,7 @@ export async function forwardMessage({ userId, from, text }) {
     blockDurationHours: Number(data.block_duration_hours) || 0,
     quote: Boolean(data.quote),
     parts: Array.isArray(data.parts) ? data.parts : null,
+    stickerTag: data.sticker_tag || null,
   };
 }
 

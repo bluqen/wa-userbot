@@ -28,11 +28,21 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       : JSON.parse(row.settings),
   }));
 
+  // Piggybacked here rather than a separate endpoint -- this route is
+  // already on /message's critical path (one round trip for config +
+  // history together), and AI Reply needs to know which sticker tags
+  // exist before it can offer one to the LLM. See ai_reply.py.
+  const stickers = await prisma.sticker.findMany({
+    where: { sessionId: params.id },
+    select: { tag: true },
+  });
+  const stickerTags = stickers.map((s) => s.tag);
+
   const { searchParams } = new URL(req.url);
   const contact = searchParams.get('contact');
 
   if (!contact) {
-    return NextResponse.json({ plugins });
+    return NextResponse.json({ plugins, stickerTags });
   }
 
   const limitParam = Number(searchParams.get('limit'));
@@ -49,5 +59,5 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const history = recent.reverse().map((m) => ({ role: m.role, text: m.text }));
 
-  return NextResponse.json({ plugins, history });
+  return NextResponse.json({ plugins, history, stickerTags });
 }

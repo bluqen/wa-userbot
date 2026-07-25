@@ -12,6 +12,10 @@ class MessageContext:
     # (role is 'user' or 'assistant'). Populated for plugins that want
     # conversational memory (e.g. ai_reply); empty for ones that don't ask.
     history: List[dict] = field(default_factory=list)
+    # Sticker tags this session has saved (see ai_reply.py's sticker
+    # marker handling) -- fetched alongside plugin config/history in the
+    # same round trip, not a separate call.
+    sticker_tags: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -32,6 +36,8 @@ class Reply:
     # ai_reply.py), but nothing here enforces that -- it's just how the
     # one plugin that uses this happens to decide.
     parts: Optional[List[str]] = None
+    # Tag of a saved sticker to send alongside `text` -- see ai_reply.py.
+    sticker_tag: Optional[str] = None
 
 
 def resolve_settings(config: dict, from_jid: str) -> dict:

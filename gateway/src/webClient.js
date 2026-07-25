@@ -47,3 +47,30 @@ export async function completeScheduledTask(taskId) {
   });
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
 }
+
+// Teaches the bot a sticker via "/savesticker <tag>" (see whatsappManager.js's
+// handleSaveStickerCommand) -- upserts by (sessionId, tag), so re-saving a
+// tag overwrites it.
+export async function saveSticker({ sessionId, tag, data, mimetype }) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/stickers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
+    body: JSON.stringify({ sessionId, tag, data, mimetype }),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  return res.json();
+}
+
+// Fetches one saved sticker's binary (as a Buffer) by session+tag, right
+// before sending it. Returns null on a 404 -- the tag may have been
+// deleted since the plugin engine last knew about it.
+export async function fetchSticker(sessionId, tag) {
+  const res = await fetch(
+    `${WEB_APP_URL}/api/internal/stickers/${encodeURIComponent(sessionId)}/${encodeURIComponent(tag)}`,
+    { headers: { 'x-internal-secret': INTERNAL_API_SECRET } },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  return Buffer.from(data.data, 'base64');
+}

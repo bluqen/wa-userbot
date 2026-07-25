@@ -17,10 +17,22 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'gatewayUrl is required' }, { status: 400 });
   }
 
-  const sessions = await prisma.waSession.findMany({
-    where: { gatewayUrl, status: { notIn: ['disconnected', 'logged_out'] } },
-    select: { id: true, phoneNumber: true },
+  // Exact-string matching here is fragile -- a trailing slash or casing
+  // difference between this gateway's own PUBLIC_URL and whatever was typed
+  // into the admin shards panel as this shard's url would silently match
+  // zero sessions, permanently, on every restart (nothing ever logs it,
+  // since an empty reconnect list looks identical to "nothing to do").
+  // Normalize both sides before comparing instead of relying on Prisma
+  // equality on the raw stored string.
+  const normalize = (url: string) => url.trim().toLowerCase().replace(/\/+$/, '');
+  const target = normalize(gatewayUrl);
+
+  const candidates = await prisma.waSession.findMany({
+    where: { status: { notIn: ['disconnected', 'logged_out'] } },
+    select: { id: true, phoneNumber: true, gatewayUrl: true },
   });
+
+  const sessions = candidates.filter((s) => normalize(s.gatewayUrl) === target);
 
   return NextResponse.json({ sessions });
 }

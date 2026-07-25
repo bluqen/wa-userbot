@@ -88,6 +88,15 @@ async function reconnectKnownSessions() {
     return;
   }
 
+  // Zero sessions here is indistinguishable from "everything's fine" unless
+  // logged -- if PUBLIC_URL doesn't exactly match this shard's registered
+  // url on the admin panel, this silently finds nothing to reconnect, every
+  // single restart, forever. Log it so that failure mode is visible in
+  // Render's logs instead of only showing up as "Unknown" on the dashboard.
+  console.log(
+    `Reconnect watchdog: found ${sessions.length} known session(s) for PUBLIC_URL=${PUBLIC_URL}`,
+  );
+
   for (const s of sessions) {
     reconnectSession(s.id, s.phoneNumber).catch((err) =>
       console.error(`[${s.id}] reconnect watchdog failed:`, err.message),

@@ -21,7 +21,10 @@ from .session_config import fetch_session_context, fetch_session_plugins, save_m
 app = FastAPI(title="WhatsApp Plugin Engine")
 
 
-@app.get("/health")
+# Uptime monitors commonly probe with HEAD instead of GET (e.g. UptimeRobot
+# defaults to HEAD) -- FastAPI doesn't auto-accept HEAD on a GET-only route,
+# so it 405s and the monitor reports a false "down". Accept both explicitly.
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok"}
 

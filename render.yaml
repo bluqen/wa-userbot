@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: wa-bot-gateway
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: gateway
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: PLUGIN_ENGINE_URL
+        sync: false # paste wa-bot-plugins' https://...onrender.com URL after it's deployed
+      - key: DATABASE_URL
+        sync: false # same Aiven connection string as gateway/.env today
+
+  - type: web
+    name: wa-bot-plugins
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: plugins
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: WEB_APP_URL
+        sync: false # paste wa-bot-web's https://...onrender.com URL
+      - key: INTERNAL_API_SECRET
+        sync: false # must exactly match the value entered for wa-bot-web
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+
+  - type: web
+    name: wa-bot-web
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: web
+    buildCommand: npm install && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false # same Aiven connection string as web/.env today
+      - key: NEXTAUTH_SECRET
+        sync: false
+      - key: NEXTAUTH_URL
+        sync: false # this service's own https://...onrender.com URL
+      - key: GATEWAY_URL
+        sync: false # wa-bot-gateway's https://...onrender.com URL
+      - key: INTERNAL_API_SECRET
+        sync: false # must exactly match the value entered for wa-bot-plugins
+      - key: ADMIN_EMAILS
+        sync: false # comma-separated allowlist, e.g. your own email

@@ -1,0 +1,10 @@
+# Contains a live Baileys WhatsApp credentials dump -- must never enter git history.
+scripts/.debug-auth/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Claude Code project-local state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

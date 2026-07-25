@@ -1,0 +1,21 @@
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
+
+class IncomingMessage(BaseModel):
+    user_id: str
+    from_jid: str = Field(alias="from")
+    text: str
+
+    model_config = {"populate_by_name": True}
+
+
+class ReplyResponse(BaseModel):
+    reply: Optional[str] = None
+    show_typing: bool = False
+    typing_delay_ms: int = 0
+
+
+class RewriteResponse(BaseModel):
+    rewritten: Optional[str] = None

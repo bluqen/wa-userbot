@@ -1,0 +1,72 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  passwordHash String
+  createdAt    DateTime    @default(now())
+  sessions     WaSession[]
+}
+
+model WaSession {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label       String
+  phoneNumber String
+  status      String          @default("connecting")
+  // Which gateway instance actually holds this session's WhatsApp
+  // connection. Assigned once at creation time (see lib/shards.ts) so we
+  // can run more than one gateway instance -- e.g. to stay within a single
+  // free-tier host's resource limits -- without a routing rewrite later.
+  gatewayUrl  String          @default("http://localhost:4000")
+  createdAt   DateTime        @default(now())
+  plugins     SessionPlugin[]
+  messages    ChatMessage[]
+
+  @@index([userId])
+}
+
+model ChatMessage {
+  id         String    @id @default(cuid())
+  sessionId  String
+  session    WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contactJid String
+  role       String // 'user' | 'assistant'
+  text       String
+  createdAt  DateTime  @default(now())
+
+  @@index([sessionId, contactJid, createdAt])
+}
+
+model SessionPlugin {
+  id        String    @id @default(cuid())
+  sessionId String
+  session   WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  key       String
+  enabled   Boolean   @default(false)
+  settings  String    @default("{}")
+  updatedAt DateTime  @updatedAt
+
+  @@unique([sessionId, key])
+}
+
+// Admin-managed pool of gateway instances new sessions get assigned to (see
+// web/lib/shards.ts). Deliberately no relation to WaSession -- it's a pure
+// lookup table read at session-creation time; WaSession.gatewayUrl stays a
+// plain string copied at that moment, so removing/deactivating a shard here
+// never touches existing sessions.
+model GatewayShard {
+  id        String   @id @default(cuid())
+  url       String   @unique
+  label     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

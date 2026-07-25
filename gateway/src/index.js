@@ -67,19 +67,30 @@ app.post('/session/:userId/logout', async (req, res) => {
 // instance used to be holding and reconnect each one; reconnectSession()
 // already tries saved creds first and only needs a human if those no
 // longer work (e.g. the device was actually unlinked from the phone).
+//
+// Doing this only once at startup isn't enough in practice -- a session
+// can also die mid-lifetime for reasons the close-handler's own backoff
+// doesn't cover cleanly (e.g. this exact process losing track of it
+// without a clean 'close' event), and a single missed startup attempt
+// (e.g. the web app not being reachable yet on a simultaneous deploy)
+// would otherwise leave a session dead forever with nothing retrying it.
+// So this also runs on an interval, not just once. reconnectSession()
+// itself is already a safe no-op for anything already connected, so
+// calling this repeatedly costs nothing for sessions that are fine.
+const RECONNECT_WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
+
 async function reconnectKnownSessions() {
   let sessions;
   try {
     sessions = await fetchSessionsForGateway(PUBLIC_URL);
   } catch (err) {
-    console.error('Startup reconnect: failed to fetch known sessions:', err.message);
+    console.error('Reconnect watchdog: failed to fetch known sessions:', err.message);
     return;
   }
 
-  console.log(`Startup reconnect: found ${sessions.length} session(s) to restore`);
   for (const s of sessions) {
     reconnectSession(s.id, s.phoneNumber).catch((err) =>
-      console.error(`[${s.id}] startup reconnect failed:`, err.message),
+      console.error(`[${s.id}] reconnect watchdog failed:`, err.message),
     );
   }
 }
@@ -87,5 +98,6 @@ async function reconnectKnownSessions() {
 app.listen(PORT, () => {
   console.log(`WhatsApp gateway listening on http://localhost:${PORT}`);
   reconnectKnownSessions();
+  setInterval(reconnectKnownSessions, RECONNECT_WATCHDOG_INTERVAL_MS);
   startScheduler(PUBLIC_URL);
 });

@@ -65,18 +65,26 @@ string has that param stripped before being passed to `pg.Pool`, with an
 explicit `ssl: { rejectUnauthorized: false }` instead. Copy this pattern
 if you add more raw `pg` usage anywhere.
 
-## Startup reconnect
+## Reconnect watchdog
 
 The in-memory `sessions` Map starts empty every time this process starts
 -- a Render redeploy, a crash, anything -- and nothing else automatically
 tells previously-live sessions to come back; the dashboard would just sit
-there showing "Reconnect" until someone clicked it. Fixed: on `app.listen`,
-the gateway asks the web app's `GET /api/internal/gateway-sessions
-?gatewayUrl=...` for every session assigned to `PUBLIC_URL` that isn't
-explicitly disconnected, then calls `reconnectSession()` on each --
-same logic the dashboard's manual "Reconnect" button uses (tries saved
-creds first, only needs a human if those no longer work, e.g. the device
-was actually unlinked from the phone).
+there showing "Reconnect" until someone clicked it. Fixed: the gateway
+asks the web app's `GET /api/internal/gateway-sessions?gatewayUrl=...`
+for every session assigned to `PUBLIC_URL` that isn't explicitly
+disconnected, then calls `reconnectSession()` on each -- same logic the
+dashboard's manual "Reconnect" button uses (tries saved creds first, only
+needs a human if those no longer work, e.g. the device was actually
+unlinked from the phone).
+
+This runs once immediately on `app.listen`, **and then on a 2-minute
+interval for the life of the process** -- a single startup attempt isn't
+enough on its own (e.g. the web app might not be reachable yet during a
+simultaneous multi-service deploy, or a session can go stale mid-lifetime
+in a way the close-handler's own backoff doesn't catch). `reconnectSession()`
+is already a safe no-op for anything already connected, so the recurring
+call costs nothing for sessions that are fine.
 
 Requires three env vars this service didn't need before: `PUBLIC_URL`
 (this instance's own URL -- must match its `gatewayUrl` on sessions

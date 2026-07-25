@@ -7,6 +7,7 @@ import ExceptionsEditor, { type Exception } from './ExceptionsEditor';
 export type AIReplySettingsValue = {
   personalityId: string;
   customPrompt: string;
+  knowledgeBase: string;
   replyInGroups: boolean;
   showTyping: boolean;
   typingDurationMs: number;
@@ -77,6 +78,24 @@ export default function AIReplySettings({
           />
         </div>
       )}
+
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">
+          Knowledge base (optional)
+        </label>
+        <textarea
+          value={form.knowledgeBase}
+          onChange={(e) => setForm({ ...form, knowledgeBase: e.target.value.slice(0, 4000) })}
+          rows={5}
+          maxLength={4000}
+          placeholder="Paste FAQs, business hours, pricing, policies -- anything the bot should know to answer questions accurately, beyond just its personality."
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          {form.knowledgeBase.length}/4000 characters. Given to the AI as reference info for every
+          reply -- it'll fall back to the personality above for anything not covered here.
+        </p>
+      </div>
 
       <label className="flex items-center justify-between gap-4 text-sm">
         <span>

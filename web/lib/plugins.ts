@@ -30,6 +30,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   ai_reply: {
     personalityId: 'friendly-helper',
     customPrompt: '',
+    knowledgeBase: '',
     replyInGroups: false,
     showTyping: true,
     typingDurationMs: 2000,

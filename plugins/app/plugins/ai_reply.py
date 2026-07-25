@@ -55,6 +55,15 @@ class AIReplyPlugin(Plugin):
 
         system_prompt = BASE_INSTRUCTIONS + personality_text
 
+        knowledge_base = (config.get("knowledgeBase") or "").strip()
+        if knowledge_base:
+            system_prompt += (
+                "\n\nYou also have the following reference information about the "
+                "business/person you're replying on behalf of -- use it to answer "
+                "questions accurately when it's relevant, and fall back to the "
+                "personality above for anything it doesn't cover:\n\n" + knowledge_base
+            )
+
         history_length = int(config.get("historyLength", 10))
         history = ctx.history[-history_length:] if history_length > 0 else []
 

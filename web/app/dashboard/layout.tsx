@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
               </Link>
               {isAdminEmail(session.user.email) && (
                 <Link
-                  href="/dashboard/admin/shards"
+                  href="/dashboard/admin"
                   className="rounded-md px-3 py-1.5 font-medium text-slate-300 hover:bg-surface-raised hover:text-slate-100"
                 >
                   Admin

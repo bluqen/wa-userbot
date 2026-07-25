@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import ConfirmModal from '@/components/ConfirmModal';
 
 type GatewayShard = {
@@ -11,20 +12,28 @@ type GatewayShard = {
   createdAt: string;
 };
 
+type EnvShard = {
+  url: string;
+  inEffect: boolean;
+};
+
 export default function ShardsManager() {
   const [shards, setShards] = useState<GatewayShard[]>([]);
+  const [envShards, setEnvShards] = useState<EnvShard[]>([]);
   const [loading, setLoading] = useState(true);
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [promotingUrl, setPromotingUrl] = useState<string | null>(null);
 
   const fetchShards = useCallback(async () => {
     const res = await fetch('/api/admin/shards');
     if (res.ok) {
       const data = await res.json();
       setShards(data.shards);
+      setEnvShards(data.envShards);
     }
     setLoading(false);
   }, []);
@@ -33,28 +42,44 @@ export default function ShardsManager() {
     fetchShards();
   }, [fetchShards]);
 
+  async function createShard(shardUrl: string, shardLabel: string) {
+    const res = await fetch('/api/admin/shards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: shardUrl, label: shardLabel }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to add shard');
+    }
+  }
+
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-
-    const res = await fetch('/api/admin/shards', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, label }),
-    });
-
-    setSubmitting(false);
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || 'Failed to add shard');
-      return;
+    try {
+      await createShard(url, label);
+      setUrl('');
+      setLabel('');
+      fetchShards();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    setUrl('');
-    setLabel('');
-    fetchShards();
+  async function handlePromote(envUrl: string) {
+    setPromotingUrl(envUrl);
+    try {
+      await createShard(envUrl, '');
+      fetchShards();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPromotingUrl(null);
+    }
   }
 
   async function handleToggleActive(shard: GatewayShard) {
@@ -93,7 +118,7 @@ export default function ShardsManager() {
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. us-east"
+            placeholder="blank = auto-named"
             className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
           />
         </div>
@@ -109,23 +134,51 @@ export default function ShardsManager() {
 
       {loading ? (
         <p className="text-sm text-slate-400">Loading...</p>
-      ) : shards.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-surface-border p-10 text-center">
-          <p className="text-slate-400">
-            No shards configured -- new sessions fall back to GATEWAY_URL/GATEWAY_SHARD_URLS.
-          </p>
-        </div>
       ) : (
         <div className="space-y-3">
+          {envShards.map((env) => (
+            <div
+              key={env.url}
+              className="flex items-center justify-between rounded-xl border border-dashed border-surface-border bg-surface-raised/50 p-4"
+            >
+              <div>
+                <p className="font-medium text-slate-300">Default (from env)</p>
+                <p className="mt-0.5 text-sm text-slate-400">{env.url}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-xs font-medium ${env.inEffect ? 'text-emerald-400' : 'text-slate-500'}`}
+                >
+                  {env.inEffect ? 'In effect' : 'Standing by'}
+                </span>
+                <button
+                  onClick={() => handlePromote(env.url)}
+                  disabled={promotingUrl === env.url}
+                  className="rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50"
+                >
+                  {promotingUrl === env.url ? 'Adding...' : 'Manage as a shard'}
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {shards.length === 0 && envShards.length === 0 && (
+            <div className="rounded-xl border border-dashed border-surface-border p-10 text-center">
+              <p className="text-slate-400">No shards configured, and no GATEWAY_URL fallback set.</p>
+            </div>
+          )}
+
           {shards.map((shard) => (
             <div
               key={shard.id}
               className="flex items-center justify-between rounded-xl border border-surface-border bg-surface-raised p-4"
             >
-              <div>
-                <p className="font-medium">{shard.label || shard.url}</p>
+              <Link href={`/dashboard/admin/shards/${shard.id}`} className="group">
+                <p className="font-medium capitalize group-hover:underline">
+                  {shard.label || shard.url}
+                </p>
                 {shard.label && <p className="mt-0.5 text-sm text-slate-400">{shard.url}</p>}
-              </div>
+              </Link>
               <div className="flex items-center gap-2">
                 <span
                   className={`text-xs font-medium ${shard.active ? 'text-emerald-400' : 'text-slate-500'}`}

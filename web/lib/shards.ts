@@ -11,7 +11,7 @@ import { prisma } from './prisma';
 // is now only the fallback path -- see pickShardForNewSession below.
 const DEFAULT_GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:4000';
 
-const ENV_SHARD_URLS = (process.env.GATEWAY_SHARD_URLS || DEFAULT_GATEWAY_URL)
+export const ENV_SHARD_URLS = (process.env.GATEWAY_SHARD_URLS || DEFAULT_GATEWAY_URL)
   .split(',')
   .map((url) => url.trim())
   .filter(Boolean);

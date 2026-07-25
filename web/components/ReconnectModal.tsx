@@ -7,11 +7,16 @@ export default function ReconnectModal({
   initialStatus,
   initialPairingCode,
   onClose,
+  statusUrl,
 }: {
   sessionId: string;
   initialStatus: string;
   initialPairingCode: string | null;
   onClose: () => void;
+  // Defaults to the caller's-own-sessions endpoint; the admin sessions
+  // manager passes its own admin-scoped status route instead, since it
+  // polls sessions that may belong to a different user.
+  statusUrl?: string;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [pairingCode, setPairingCode] = useState(initialPairingCode);
@@ -20,7 +25,7 @@ export default function ReconnectModal({
     if (status === 'connected') return;
 
     const interval = setInterval(async () => {
-      const res = await fetch(`/api/sessions/${sessionId}/status`);
+      const res = await fetch(statusUrl || `/api/sessions/${sessionId}/status`);
       if (res.ok) {
         const data = await res.json();
         setStatus(data.status);

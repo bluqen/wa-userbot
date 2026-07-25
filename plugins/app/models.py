@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,8 @@ class ReplyResponse(BaseModel):
     typing_delay_ms: int = 0
     block: bool = False
     block_duration_hours: int = 0
+    quote: bool = False
+    parts: Optional[List[str]] = None
 
 
 class RewriteResponse(BaseModel):

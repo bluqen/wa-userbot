@@ -23,6 +23,15 @@ class Reply:
     typing_delay_ms: int = 0
     block: bool = False
     block_duration_hours: int = 0
+    # Reply to the specific incoming message (WhatsApp's "swipe reply")
+    # instead of sending a plain new message.
+    quote: bool = False
+    # If set, send these in sequence as separate messages instead of
+    # `text` as one -- a short human-like pause between each is added by
+    # the gateway. Mutually exclusive with `quote` in practice (see
+    # ai_reply.py), but nothing here enforces that -- it's just how the
+    # one plugin that uses this happens to decide.
+    parts: Optional[List[str]] = None
 
 
 def resolve_settings(config: dict, from_jid: str) -> dict:

@@ -70,6 +70,29 @@ hallucinated/copied marker). `blockDurationHours` (0 = permanent) rides
 along on the same response -- see `gateway/README.md`'s "Scheduled tasks"
 for how a temporary block automatically un-blocks later.
 
+## Humanlikeness (`ai_reply.py`)
+
+A 0-100 per-session setting. At `0`, behavior is unchanged from before
+this existed: the configured `typingDurationMs` is used exactly, and
+every reply is a single plain message. Above `0`:
+
+- **Randomized delay** (`_compute_delay_ms`) -- widens the range randomly
+  sampled around the configured base delay; higher values mean more
+  variance, the way a real person's response time swings far more than
+  any fixed number would.
+- **Style roll** (`_pick_style`) -- each reply independently rolls
+  `plain`/`quote`/`split`, weighted by humanlikeness (max ~35% quote,
+  ~40% split at 100). `quote` replies to the specific incoming message
+  (WhatsApp's swipe-reply) instead of sending a new one. `split` sends
+  the reply as two separate messages at a sentence boundary with a short
+  gap between them, the way people often send a quick follow-up instead
+  of one longer message -- only picked when the text actually has 2+
+  sentences to split (`_split_into_parts`), otherwise falls back to plain.
+
+The actual sending (multi-part timing, the `quoted` option) happens in
+`gateway/src/whatsappManager.js` -- this plugin only decides the strategy
+and hands back `Reply.quote`/`Reply.parts`.
+
 ## Latency
 
 Both `save_message()` calls in `/message` are scheduled with

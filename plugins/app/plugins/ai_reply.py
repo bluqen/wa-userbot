@@ -1,5 +1,7 @@
+import random
+import re
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .. import llm
 from ..personalities import get_personality_prompt
@@ -25,6 +27,61 @@ BLOCK_INSTRUCTIONS = (
 
 # (session_id, contact_jid) -> unix timestamp of the last AI reply sent.
 _last_replied: dict[Tuple[str, str], float] = {}
+
+
+def _compute_delay_ms(base_ms: int, humanlikeness: int) -> int:
+    """At 0, returns base_ms unchanged -- today's behavior. Above that,
+    widens the range randomly sampled around base_ms; higher humanlikeness
+    means more variance (a real person's response time swings a lot more
+    than a fixed number ever would).
+    """
+    if humanlikeness <= 0:
+        return base_ms
+    jitter = humanlikeness / 100  # 0..1
+    low = base_ms * (1 - 0.5 * jitter)
+    high = base_ms * (1 + 2 * jitter)
+    return int(random.uniform(max(low, 300), max(high, low + 300)))
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _split_into_parts(text: str) -> Optional[List[str]]:
+    """Splits a reply into two messages at a sentence boundary, the way a
+    person often sends a quick follow-up instead of one longer message.
+    Only returns a split for text that actually has 2+ sentences -- a
+    short one-liner has nothing sensible to split, so this returns None
+    and the caller falls back to a single plain message.
+    """
+    sentences = [s for s in _SENTENCE_SPLIT.split(text.strip()) if s]
+    if len(sentences) < 2:
+        return None
+    midpoint = len(sentences) // 2
+    part1 = " ".join(sentences[:midpoint]).strip()
+    part2 = " ".join(sentences[midpoint:]).strip()
+    if not part1 or not part2:
+        return None
+    return [part1, part2]
+
+
+def _pick_style(humanlikeness: int, text: str) -> str:
+    """Returns 'plain', 'quote', or 'split' -- mutually exclusive per
+    reply, weighted by humanlikeness. At 0, always 'plain' (today's
+    behavior, unchanged). 'split' only gets picked if the text actually
+    has something splittable.
+    """
+    if humanlikeness <= 0:
+        return "plain"
+    weight = humanlikeness / 100
+    can_split = _split_into_parts(text) is not None
+    split_p = 0.4 * weight if can_split else 0
+    quote_p = 0.35 * weight
+    roll = random.random()
+    if roll < split_p:
+        return "split"
+    if roll < split_p + quote_p:
+        return "quote"
+    return "plain"
 
 
 class AIReplyPlugin(Plugin):
@@ -105,10 +162,19 @@ class AIReplyPlugin(Plugin):
         if cooldown_minutes:
             _last_replied[(ctx.user_id, ctx.from_jid)] = time.time()
 
+        humanlikeness = max(0, min(100, int(config.get("humanlikeness", 0))))
+        delay_ms = _compute_delay_ms(int(config.get("typingDurationMs", 0)), humanlikeness)
+
+        style = _pick_style(humanlikeness, text) if text else "plain"
+        parts = _split_into_parts(text) if style == "split" else None
+        quote = style == "quote"
+
         return Reply(
             text=text or None,
             show_typing=bool(config.get("showTyping", False)),
-            typing_delay_ms=int(config.get("typingDurationMs", 0)),
+            typing_delay_ms=delay_ms,
             block=should_block,
             block_duration_hours=int(config.get("blockDurationHours", 0)) if should_block else 0,
+            quote=quote,
+            parts=parts,
         )

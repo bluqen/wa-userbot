@@ -273,28 +273,44 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
-        const { reply, showTyping, typingDelayMs, block, blockDurationHours } = await forwardMessage({
-          userId,
-          from: resolvedFrom,
-          text,
-        });
+        const { reply, showTyping, typingDelayMs, block, blockDurationHours, quote, parts } =
+          await forwardMessage({ userId, from: resolvedFrom, text });
 
         if (reply) {
-          if (showTyping) {
-            await sock.sendPresenceUpdate('composing', msg.key.remoteJid);
-            await new Promise((resolve) => setTimeout(resolve, typingDelayMs || 1500));
-          }
+          // A split reply (humanlikeness "split" style) sends each part as
+          // its own message with a brief gap, each preceded by its own
+          // typing indicator if enabled -- a single-part reply is just the
+          // len-1 case of the same loop. `quote` (swipe-reply to the
+          // incoming message) only applies to the first part; it wouldn't
+          // make sense repeated on a follow-up message.
+          const messagesToSend = parts && parts.length > 0 ? parts : [reply];
 
-          const sent = await sock.sendMessage(msg.key.remoteJid, { text: reply });
-          if (sent?.key?.id && sent.message) {
-            sentMessages.set(sent.key.id, sent.message);
-            if (sentMessages.size > MAX_SENT_MESSAGES) {
-              sentMessages.delete(sentMessages.keys().next().value);
+          for (let i = 0; i < messagesToSend.length; i++) {
+            if (showTyping) {
+              await sock.sendPresenceUpdate('composing', msg.key.remoteJid);
+              await new Promise((resolve) => setTimeout(resolve, typingDelayMs || 1500));
             }
-          }
 
-          if (showTyping) {
-            await sock.sendPresenceUpdate('paused', msg.key.remoteJid);
+            const sendOptions = i === 0 && quote ? { quoted: msg } : undefined;
+            const sent = await sock.sendMessage(
+              msg.key.remoteJid,
+              { text: messagesToSend[i] },
+              sendOptions,
+            );
+            if (sent?.key?.id && sent.message) {
+              sentMessages.set(sent.key.id, sent.message);
+              if (sentMessages.size > MAX_SENT_MESSAGES) {
+                sentMessages.delete(sentMessages.keys().next().value);
+              }
+            }
+
+            if (showTyping) {
+              await sock.sendPresenceUpdate('paused', msg.key.remoteJid);
+            }
+
+            if (i < messagesToSend.length - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 800));
+            }
           }
         }
 

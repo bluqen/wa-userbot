@@ -15,6 +15,7 @@ export type AIReplySettingsValue = {
   historyLength: number;
   allowBlocking: boolean;
   blockDurationHours: number;
+  humanlikeness: number;
   exceptions: Exception[];
 };
 
@@ -96,6 +97,27 @@ export default function AIReplySettings({
         <p className="mt-1 text-xs text-slate-500">
           {form.knowledgeBase.length}/4000 characters. Given to the AI as reference info for every
           reply -- it'll fall back to the personality above for anything not covered here.
+        </p>
+      </div>
+
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-300">Humanlikeness</label>
+          <span className="text-xs text-slate-400">{form.humanlikeness}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={form.humanlikeness}
+          onChange={(e) => setForm({ ...form, humanlikeness: Number(e.target.value) })}
+          className="w-full accent-emerald-500"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          0 = consistent timing, always a single plain reply (today&apos;s behavior). Higher =
+          more randomized reply timing, occasionally replying to the specific message (swipe
+          reply) instead of a new one, and occasionally splitting a reply into two quick messages
+          instead of one.
         </p>
       </div>
 

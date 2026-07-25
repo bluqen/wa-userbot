@@ -21,6 +21,8 @@ export async function forwardMessage({ userId, from, text }) {
     typingDelayMs: Number(data.typing_delay_ms) || 0,
     block: Boolean(data.block),
     blockDurationHours: Number(data.block_duration_hours) || 0,
+    quote: Boolean(data.quote),
+    parts: Array.isArray(data.parts) ? data.parts : null,
   };
 }
 

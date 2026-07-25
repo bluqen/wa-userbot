@@ -102,6 +102,8 @@ async def handle_message(msg: IncomingMessage):
                         typing_delay_ms=reply.typing_delay_ms,
                         block=reply.block,
                         block_duration_hours=reply.block_duration_hours,
+                        quote=reply.quote,
+                        parts=reply.parts,
                     )
         except Exception as exc:  # a broken plugin shouldn't take the whole engine down
             print(f"[plugin:{plugin.name}] error: {exc}")

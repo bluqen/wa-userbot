@@ -91,6 +91,17 @@ Requires three env vars this service didn't need before: `PUBLIC_URL`
 exactly), `WEB_APP_URL`, and `INTERNAL_API_SECRET` (must match `web/.env`
 and `plugins/.env`).
 
+## Humanlike sending
+
+`messages.upsert` also reads `quote`/`parts` off the plugin engine's
+response (see `plugins/README.md`'s "Humanlikeness" -- `ai_reply.py`
+decides the strategy, this just executes it): a `parts` array sends each
+string as its own message with a short randomized gap in between instead
+of one plain send (each still gets its own typing-indicator cycle if
+`showTyping` is on); `quote` passes `{ quoted: msg }` (the original
+incoming message) as `sock.sendMessage`'s options on the first part only,
+producing WhatsApp's swipe-reply instead of a plain new message.
+
 ## Blocking contacts
 
 AI Reply can signal that a contact should be blocked (opt-in per session

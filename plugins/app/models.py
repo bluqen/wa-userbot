@@ -15,6 +15,8 @@ class ReplyResponse(BaseModel):
     reply: Optional[str] = None
     show_typing: bool = False
     typing_delay_ms: int = 0
+    block: bool = False
+    block_duration_hours: int = 0
 
 
 class RewriteResponse(BaseModel):

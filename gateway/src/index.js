@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { startSession, sessionStatus, logoutSession, reconnectSession } from './whatsappManager.js';
 import { fetchSessionsForGateway } from './webClient.js';
+import { startScheduler } from './scheduler.js';
 
 const app = express();
 app.use(cors());
@@ -86,4 +87,5 @@ async function reconnectKnownSessions() {
 app.listen(PORT, () => {
   console.log(`WhatsApp gateway listening on http://localhost:${PORT}`);
   reconnectKnownSessions();
+  startScheduler(PUBLIC_URL);
 });

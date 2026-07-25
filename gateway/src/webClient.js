@@ -13,3 +13,37 @@ export async function fetchSessionsForGateway(gatewayUrl) {
   const data = await res.json();
   return data.sessions || [];
 }
+
+// Generic, reusable persisted scheduler -- see web/prisma/schema.prisma's
+// ScheduledTask model and gateway/src/scheduler.js. `type` + `payload` are
+// deliberately untyped here; each task type's shape is only meaningful to
+// its own handler in scheduler.js.
+export async function createScheduledTask({ sessionId, type, payload, runAt }) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/scheduled-tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
+    body: JSON.stringify({ sessionId, type, payload, runAt }),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  return res.json();
+}
+
+// Every not-yet-completed task whose runAt has passed, for sessions
+// assigned to this gateway instance.
+export async function fetchDueTasks(gatewayUrl) {
+  const res = await fetch(
+    `${WEB_APP_URL}/api/internal/scheduled-tasks?gatewayUrl=${encodeURIComponent(gatewayUrl)}`,
+    { headers: { 'x-internal-secret': INTERNAL_API_SECRET } },
+  );
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  return data.tasks || [];
+}
+
+export async function completeScheduledTask(taskId) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/scheduled-tasks/${taskId}/complete`, {
+    method: 'POST',
+    headers: { 'x-internal-secret': INTERNAL_API_SECRET },
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+}

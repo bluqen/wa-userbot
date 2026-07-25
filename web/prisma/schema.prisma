@@ -30,6 +30,7 @@ model WaSession {
   createdAt   DateTime        @default(now())
   plugins     SessionPlugin[]
   messages    ChatMessage[]
+  scheduledTasks ScheduledTask[]
 
   @@index([userId])
 }
@@ -69,4 +70,26 @@ model GatewayShard {
   label     String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+// Generic, reusable persisted scheduler. A row means "run this typed action
+// for this session at/after runAt". `type` + `payload` (an untyped JSON
+// string, same pattern as SessionPlugin.settings) is deliberately generic
+// so a future feature reuses this table by picking a new `type` and
+// registering a gateway-side handler for it (see gateway/src/scheduler.js)
+// -- no schema change needed. The first user is temporary contact blocks
+// (type "unblock_contact"). Cascades with its WaSession so deleting a
+// session cleans up its pending tasks too.
+model ScheduledTask {
+  id          String    @id @default(cuid())
+  sessionId   String
+  session     WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type        String
+  payload     String    @default("{}")
+  runAt       DateTime
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([sessionId])
+  @@index([runAt, completedAt])
 }

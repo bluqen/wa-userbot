@@ -12,10 +12,14 @@ in `whatsappManager.js`).
   `POST /session/:userId/reconnect`, `GET /health` (used by Render's
   health check and the UptimeRobot monitor). On startup, also asks the web
   app (via `webClient.js`) which sessions belong to this instance and
-  reconnects each one -- see "Startup reconnect" below.
-- `src/webClient.js` -- `fetchSessionsForGateway(gatewayUrl)`, the one call
-  this service makes to the web app's internal API (everything else is the
-  other direction: web calls gateway).
+  reconnects each one -- see "Startup reconnect" below -- and starts the
+  scheduled-task poller (see "Scheduled tasks" below).
+- `src/webClient.js` -- every call this service makes to the web app's
+  internal API (everything else is the other direction: web calls
+  gateway): `fetchSessionsForGateway`, plus `createScheduledTask`/
+  `fetchDueTasks`/`completeScheduledTask` for the scheduler.
+- `src/scheduler.js` -- the generic scheduled-task poller, see "Scheduled
+  tasks" below.
 - `src/whatsappManager.js` -- the core: `startSession`, `reconnectSession`,
   `logoutSession`, `sessionStatus`. Handles pairing-code flow, auto-reconnect
   on transient disconnects (with capped exponential backoff -- see
@@ -78,6 +82,34 @@ Requires three env vars this service didn't need before: `PUBLIC_URL`
 (this instance's own URL -- must match its `gatewayUrl` on sessions
 exactly), `WEB_APP_URL`, and `INTERNAL_API_SECRET` (must match `web/.env`
 and `plugins/.env`).
+
+## Blocking contacts
+
+AI Reply can signal that a contact should be blocked (opt-in per session
+via `allowBlocking` -- see `plugins/README.md`). `messages.upsert` reads
+`block`/`blockDurationHours` off the plugin engine's response and calls
+`sock.updateBlockStatus(msg.key.remoteJid, 'block')` -- the real WhatsApp-
+addressing JID, not the LID-resolved one used for plugin-engine lookups.
+A nonzero `blockDurationHours` also creates a `ScheduledTask` (see below)
+to automatically unblock later; `0` means permanent.
+
+## Scheduled tasks
+
+A generic, persisted "run this at/after a given time" system
+(`ScheduledTask` in `web/prisma/schema.prisma`) -- built for temporary
+blocks, but reusable for any future timed feature by picking a new `type`
+string and registering a handler in `scheduler.js`, no schema change
+needed. Because the gateway's own state is purely in-memory and doesn't
+survive a restart, the actual schedule lives in Postgres (via web's
+internal API) and gets polled, not kept in memory here.
+
+`scheduler.js` runs a `setInterval` poll (60s) started once at process
+startup: fetches this instance's due, incomplete tasks
+(`GET /api/internal/scheduled-tasks?gatewayUrl=...`), looks up a handler
+by `type`, and only executes it if the task's session is currently
+`connected` on this process -- if not (e.g. the gateway just restarted and
+hasn't reconnected yet), it's left incomplete and retried next tick rather
+than erroring or giving up.
 
 ## Multi-instance / sharding
 

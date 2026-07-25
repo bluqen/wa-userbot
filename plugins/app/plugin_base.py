@@ -16,9 +16,13 @@ class MessageContext:
 
 @dataclass
 class Reply:
-    text: str
+    # None means "nothing worth sending" -- used for a block-only reply,
+    # where the only thing that happened is `block` below.
+    text: Optional[str] = None
     show_typing: bool = False
     typing_delay_ms: int = 0
+    block: bool = False
+    block_duration_hours: int = 0
 
 
 def resolve_settings(config: dict, from_jid: str) -> dict:

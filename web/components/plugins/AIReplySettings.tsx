@@ -13,6 +13,8 @@ export type AIReplySettingsValue = {
   typingDurationMs: number;
   cooldownMinutes: number;
   historyLength: number;
+  allowBlocking: boolean;
+  blockDurationHours: number;
   exceptions: Exception[];
 };
 
@@ -180,6 +182,40 @@ export default function AIReplySettings({
           reply is generated blind.
         </p>
       </div>
+
+      <label className="flex items-center justify-between gap-4 text-sm">
+        <span>
+          Allow AI to block abusive contacts
+          <span className="block text-xs text-slate-500">
+            Off by default. When on, the AI may end a conversation by blocking the contact if
+            they&apos;re abusive or harassing -- no human confirmation in the loop.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={form.allowBlocking}
+          onChange={(e) => setForm({ ...form, allowBlocking: e.target.checked })}
+          className="h-4 w-4 shrink-0"
+        />
+      </label>
+
+      {form.allowBlocking && (
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+            Auto-unblock after (hours)
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={form.blockDurationHours}
+            onChange={(e) =>
+              setForm({ ...form, blockDurationHours: Math.max(0, Number(e.target.value)) })
+            }
+            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          />
+          <p className="mt-1 text-xs text-slate-500">0 = block permanently.</p>
+        </div>
+      )}
 
       <ExceptionsEditor
         exceptions={form.exceptions || []}

@@ -9,6 +9,7 @@ import {
 } from '@whiskeysockets/baileys';
 import { usePostgresAuthState, hasStoredCreds, clearAuthState } from './postgresAuthState.js';
 import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers } from './pluginClient.js';
+import { createScheduledTask } from './webClient.js';
 
 const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' });
 
@@ -46,6 +47,33 @@ function scheduleReconnect(userId, phoneNumber, attempt) {
       scheduleReconnect(userId, phoneNumber, attempt + 1);
     }
   }, delay);
+}
+
+// Called from messages.upsert when a reply plugin (currently just AI Reply,
+// gated by its own allowBlocking setting) signals that this contact should
+// be blocked -- jid must be the real WhatsApp-addressing JID (msg.key.remoteJid),
+// not the LID-resolved one used for plugin-engine lookups. A nonzero
+// blockDurationHours also schedules an automatic unblock via the generic
+// scheduled-task system (see scheduler.js) -- 0 means block permanently.
+async function handleBlockContact(userId, sock, jid, blockDurationHours) {
+  try {
+    await sock.updateBlockStatus(jid, 'block');
+  } catch (err) {
+    console.error(`[${userId}] failed to block ${jid}:`, err.message);
+    return;
+  }
+  if (blockDurationHours > 0) {
+    try {
+      await createScheduledTask({
+        sessionId: userId,
+        type: 'unblock_contact',
+        payload: { jid },
+        runAt: new Date(Date.now() + blockDurationHours * 60 * 60 * 1000).toISOString(),
+      });
+    } catch (err) {
+      console.error(`[${userId}] failed to schedule unblock for ${jid}:`, err.message);
+    }
+  }
 }
 
 export async function startSession(userId, phoneNumber) {
@@ -245,28 +273,36 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
-        const { reply, showTyping, typingDelayMs } = await forwardMessage({
+        const { reply, showTyping, typingDelayMs, block, blockDurationHours } = await forwardMessage({
           userId,
           from: resolvedFrom,
           text,
         });
-        if (!reply) continue;
 
-        if (showTyping) {
-          await sock.sendPresenceUpdate('composing', msg.key.remoteJid);
-          await new Promise((resolve) => setTimeout(resolve, typingDelayMs || 1500));
-        }
+        if (reply) {
+          if (showTyping) {
+            await sock.sendPresenceUpdate('composing', msg.key.remoteJid);
+            await new Promise((resolve) => setTimeout(resolve, typingDelayMs || 1500));
+          }
 
-        const sent = await sock.sendMessage(msg.key.remoteJid, { text: reply });
-        if (sent?.key?.id && sent.message) {
-          sentMessages.set(sent.key.id, sent.message);
-          if (sentMessages.size > MAX_SENT_MESSAGES) {
-            sentMessages.delete(sentMessages.keys().next().value);
+          const sent = await sock.sendMessage(msg.key.remoteJid, { text: reply });
+          if (sent?.key?.id && sent.message) {
+            sentMessages.set(sent.key.id, sent.message);
+            if (sentMessages.size > MAX_SENT_MESSAGES) {
+              sentMessages.delete(sentMessages.keys().next().value);
+            }
+          }
+
+          if (showTyping) {
+            await sock.sendPresenceUpdate('paused', msg.key.remoteJid);
           }
         }
 
-        if (showTyping) {
-          await sock.sendPresenceUpdate('paused', msg.key.remoteJid);
+        if (block) {
+          // Real WhatsApp addressing JID -- not resolvedFrom, which is
+          // only the LID-resolved phone-number JID used for plugin-engine
+          // config/exception lookups.
+          await handleBlockContact(userId, sock, msg.key.remoteJid, blockDurationHours);
         }
       } catch (err) {
         console.error(`[${userId}] plugin dispatch failed:`, err.message);
@@ -325,6 +361,12 @@ export async function reconnectSession(userId, phoneNumber) {
   }
 
   return sessionStatus(userId);
+}
+
+// Used by scheduler.js to find a session's live socket (and confirm it's
+// actually connected) before running a due scheduled task against it.
+export function getSession(userId) {
+  return sessions.get(userId);
 }
 
 export function sessionStatus(userId) {

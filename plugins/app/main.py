@@ -88,15 +88,20 @@ async def handle_message(msg: IncomingMessage):
             if plugin.match(ctx):
                 reply = plugin.handle(ctx)
                 if reply:
-                    # Same reasoning as above -- don't make the owner wait
-                    # for a history-save round trip before they get their
-                    # WhatsApp reply.
-                    asyncio.create_task(save_message(msg.user_id, msg.from_jid, "assistant", reply.text))
+                    if reply.text:
+                        # Same reasoning as above -- don't make the owner
+                        # wait for a history-save round trip before they
+                        # get their WhatsApp reply.
+                        asyncio.create_task(
+                            save_message(msg.user_id, msg.from_jid, "assistant", reply.text)
+                        )
                     record_reply(msg.user_id, msg.from_jid)
                     return ReplyResponse(
                         reply=reply.text,
                         show_typing=reply.show_typing,
                         typing_delay_ms=reply.typing_delay_ms,
+                        block=reply.block,
+                        block_duration_hours=reply.block_duration_hours,
                     )
         except Exception as exc:  # a broken plugin shouldn't take the whole engine down
             print(f"[plugin:{plugin.name}] error: {exc}")

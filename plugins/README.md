@@ -45,11 +45,30 @@ web app's Postgres database, fetched per request.
 - `app/personalities.py` -- loads `../personalities.json` (repo root, 100
   entries, shared with the web dashboard's dropdown).
 - `app/plugins/autoreply.py`, `ai_reply.py` -- real `Plugin` subclasses,
-  auto-discovered.
+  auto-discovered. `ai_reply.py` also supports opt-in blocking (see
+  "Blocking abusive contacts" below).
 - `app/plugins/ai_write.py` -- **not** a `Plugin` subclass (different
   shape: `should_process()` / `rewrite()`, since it acts on the owner's own
   messages, not incoming ones). Instantiated directly in `main.py`'s
   `/rewrite` handler.
+
+## Blocking abusive contacts
+
+`Reply` (`plugin_base.py`) carries `block: bool` and
+`block_duration_hours: int`, threaded through `ReplyResponse` to the
+gateway, which actually calls Baileys' `updateBlockStatus`. Off by default
+per session (`allowBlocking` setting) -- an LLM autonomously blocking a
+real contact with no human in the loop is a real enough risk that it
+shouldn't be default-on. When on, `ai_reply.py` appends instructions to
+the system prompt telling the model it may include a literal `[[BLOCK]]`
+marker in its reply if the contact is genuinely abusive/harassing; the
+marker is always stripped from the outgoing text regardless (never leaks
+to a real message), but only actually triggers a block when
+`allowBlocking` is on and the contact isn't a group chat (checked again
+here, not just at prompt-injection time, as defense in depth against a
+hallucinated/copied marker). `blockDurationHours` (0 = permanent) rides
+along on the same response -- see `gateway/README.md`'s "Scheduled tasks"
+for how a temporary block automatically un-blocks later.
 
 ## Latency
 

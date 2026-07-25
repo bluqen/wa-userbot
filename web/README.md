@@ -30,6 +30,10 @@ configuration.
   find out which sessions it used to hold before the process restarted, so
   it can reconnect them automatically instead of sitting dead until
   someone clicks "Reconnect."
+- `app/api/internal/scheduled-tasks`, `.../[id]/complete` -- same
+  shared-secret gating. The generic persisted-scheduler API (create a
+  task, fetch a gateway's own due/incomplete tasks, mark one complete) --
+  see `gateway/README.md`'s "Scheduled tasks."
 - `app/api/admin/sessions/*`, `app/api/admin/shards/*` -- admin-only (see
   "Admin panel" below), gated by `lib/admin.ts`'s `requireAdmin()` (a
   logged-in user *and* their email in `ADMIN_EMAILS`), not the internal
@@ -106,7 +110,10 @@ Models: `User`, `WaSession` (includes `gatewayUrl` for shard routing),
 `ChatMessage` (per-session, per-contact history), `GatewayShard`
 (admin-managed pool of gateway instances -- deliberately no relation to
 `WaSession`; it's a lookup table read once at session-creation time, so
-removing a shard never affects sessions already assigned to it).
+removing a shard never affects sessions already assigned to it),
+`ScheduledTask` (generic persisted "run this typed action at/after a
+given time" -- currently used for temporary contact unblocks, reusable
+for future timed features; see `gateway/README.md`'s "Scheduled tasks").
 
 **Do not run `prisma db push --accept-data-loss`** without reading exactly
 what it says it will drop first -- the `gateway` schema (a different

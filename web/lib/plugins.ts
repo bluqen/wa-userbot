@@ -36,6 +36,8 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     typingDurationMs: 2000,
     cooldownMinutes: 0,
     historyLength: 10,
+    allowBlocking: false,
+    blockDurationHours: 0,
     exceptions: [],
   },
   ai_write: {

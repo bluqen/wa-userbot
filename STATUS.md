@@ -259,6 +259,30 @@ for the *specific* error, not just "down").
   first saved came back missing entirely. Both plugin-config API routes
   now merge saved settings over defaults.
 
+## Added after initial deployment
+
+- **Knowledge-base grounding for AI Reply** -- a per-session free-text
+  field (up to 4000 chars, `knowledgeBase` setting) appended to the system
+  prompt alongside personality text, so the bot can answer real questions
+  (FAQs, hours, pricing) instead of just staying in character generically.
+  Plain prompt-stuffing, no vector store/embeddings -- premature complexity
+  at this scale.
+- **AI-triggered contact blocking** -- opt-in per session (`allowBlocking`,
+  default off). When on, AI Reply can end a conversation with a genuinely
+  abusive/harassing contact by including a `[[BLOCK]]` marker in its reply
+  (always stripped before sending, whether or not it's acted on); the
+  gateway then calls Baileys' `updateBlockStatus`. See
+  `plugins/README.md`'s "Blocking abusive contacts" and
+  `gateway/README.md`'s "Blocking contacts".
+- **Generic persisted scheduled-task system** -- a new `ScheduledTask`
+  table + gateway-side poller (`scheduler.js`), built so a temporary block
+  (`blockDurationHours`, 0 = permanent) can auto-unblock later, but
+  reusable for any future timed feature via a new `type` string + handler,
+  no schema change needed. Persisted (not in-memory) specifically so it
+  survives a gateway restart, same reasoning as the startup-reconnect fix
+  above. No new env vars needed -- reuses `WEB_APP_URL`/
+  `INTERNAL_API_SECRET` already added for that fix.
+
 ## Nothing currently in progress
 
 Everything above and in earlier versions of this file (LID matching, the

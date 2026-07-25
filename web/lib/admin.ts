@@ -15,6 +15,6 @@ export async function requireAdmin(): Promise<{ userId: string; email: string } 
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id;
   const email = session?.user?.email;
-  if (!userId || !isAdminEmail(email)) return null;
+  if (!userId || !email || !isAdminEmail(email)) return null;
   return { userId, email };
 }

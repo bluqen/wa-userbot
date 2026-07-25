@@ -1,4 +1,4 @@
-import { fetchDueTasks, completeScheduledTask } from './webClient.js';
+import { fetchDueTasks, completeScheduledTask, describeFetchError } from './webClient.js';
 import { getSession } from './whatsappManager.js';
 
 // One minute is plenty -- every task type so far (block durations) operates
@@ -22,7 +22,7 @@ async function runDueTasks(gatewayUrl) {
   try {
     tasks = await fetchDueTasks(gatewayUrl);
   } catch (err) {
-    console.error('Scheduler: failed to fetch due tasks:', err.message);
+    console.error('Scheduler: failed to fetch due tasks:', describeFetchError(err));
     return;
   }
 

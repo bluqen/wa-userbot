@@ -1,6 +1,17 @@
 const WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:3000';
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || '';
 
+// Node's fetch throws a bare "TypeError: fetch failed" for anything that
+// never got an HTTP response at all (DNS failure, connection refused/reset,
+// timeout) -- the actually useful detail (e.g. ECONNREFUSED, ENOTFOUND)
+// lives on err.cause, which callers logging just err.message miss entirely.
+// Every caller of this module's functions should log through this instead
+// of raw err.message so a misconfigured WEB_APP_URL is diagnosable from
+// logs alone instead of everything just saying "fetch failed".
+export function describeFetchError(err) {
+  return err.cause?.message ? `${err.message}: ${err.cause.message}` : err.message;
+}
+
 // Every session (id + phoneNumber) the web app has on record as assigned
 // to this exact gateway instance and not explicitly disconnected -- used
 // on startup to reconnect whatever was live before the process restarted.

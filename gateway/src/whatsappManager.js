@@ -10,7 +10,7 @@ import {
 } from '@whiskeysockets/baileys';
 import { usePostgresAuthState, hasStoredCreds, clearAuthState } from './postgresAuthState.js';
 import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers } from './pluginClient.js';
-import { createScheduledTask, saveSticker, fetchSticker } from './webClient.js';
+import { createScheduledTask, saveSticker, fetchSticker, describeFetchError } from './webClient.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
 
@@ -63,12 +63,7 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
     });
     await sock.sendMessage(msg.key.remoteJid, { text: `Saved sticker as "${tag}"`, edit: msg.key });
   } catch (err) {
-    // Node's fetch throws a bare "fetch failed" TypeError for anything that
-    // never got an HTTP response (DNS, connection refused/reset, timeout) --
-    // the actually useful detail lives on err.cause, which err.message alone
-    // doesn't include. Surface both so this is diagnosable instead of just
-    // showing "Failed to save sticker: fetch failed" with no way to tell why.
-    const detail = err.cause?.message ? `${err.message}: ${err.cause.message}` : err.message;
+    const detail = describeFetchError(err);
     console.error(`[${userId}] failed to save sticker "${tag}":`, detail);
     await sock.sendMessage(
       msg.key.remoteJid,

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { startSession, sessionStatus, logoutSession, reconnectSession } from './whatsappManager.js';
-import { fetchSessionsForGateway } from './webClient.js';
+import { fetchSessionsForGateway, describeFetchError } from './webClient.js';
 import { startScheduler } from './scheduler.js';
 
 const app = express();
@@ -84,7 +84,7 @@ async function reconnectKnownSessions() {
   try {
     sessions = await fetchSessionsForGateway(PUBLIC_URL);
   } catch (err) {
-    console.error('Reconnect watchdog: failed to fetch known sessions:', err.message);
+    console.error('Reconnect watchdog: failed to fetch known sessions:', describeFetchError(err));
     return;
   }
 

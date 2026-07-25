@@ -25,7 +25,7 @@ export default function AIReplySettings({
   value: AIReplySettingsValue;
   onSave: (value: AIReplySettingsValue) => Promise<void>;
 }) {
-  const [form, setForm] = useState(value);
+  const [form, setForm] = useState({ ...value, knowledgeBase: value.knowledgeBase ?? '' });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 

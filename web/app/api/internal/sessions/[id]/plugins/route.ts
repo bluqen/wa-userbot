@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { PLUGIN_DEFAULTS, isPluginKey } from '@/lib/plugins';
 
 const HISTORY_LIMIT_MAX = 50;
 
@@ -22,7 +23,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const plugins = rows.map((row) => ({
     key: row.key,
     enabled: row.enabled,
-    settings: JSON.parse(row.settings),
+    settings: isPluginKey(row.key)
+      ? { ...PLUGIN_DEFAULTS[row.key], ...JSON.parse(row.settings) }
+      : JSON.parse(row.settings),
   }));
 
   const { searchParams } = new URL(req.url);

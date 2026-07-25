@@ -33,7 +33,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         name: PLUGIN_META[key].name,
         description: PLUGIN_META[key].description,
         enabled: row.enabled,
-        settings: JSON.parse(row.settings),
+        // Merge over defaults so a field added to PLUGIN_DEFAULTS after a
+        // session's settings were first saved doesn't come back missing
+        // entirely -- saved values still win, this only backfills gaps.
+        settings: { ...PLUGIN_DEFAULTS[key], ...JSON.parse(row.settings) },
       };
     }),
   );

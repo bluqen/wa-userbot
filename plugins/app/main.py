@@ -106,6 +106,7 @@ async def handle_message(msg: IncomingMessage):
                         reply=reply.text,
                         show_typing=reply.show_typing,
                         typing_delay_ms=reply.typing_delay_ms,
+                        start_delay_ms=reply.start_delay_ms,
                         block=reply.block,
                         block_duration_hours=reply.block_duration_hours,
                         quote=reply.quote,

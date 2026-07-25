@@ -63,10 +63,16 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
     });
     await sock.sendMessage(msg.key.remoteJid, { text: `Saved sticker as "${tag}"`, edit: msg.key });
   } catch (err) {
-    console.error(`[${userId}] failed to save sticker "${tag}":`, err.message);
+    // Node's fetch throws a bare "fetch failed" TypeError for anything that
+    // never got an HTTP response (DNS, connection refused/reset, timeout) --
+    // the actually useful detail lives on err.cause, which err.message alone
+    // doesn't include. Surface both so this is diagnosable instead of just
+    // showing "Failed to save sticker: fetch failed" with no way to tell why.
+    const detail = err.cause?.message ? `${err.message}: ${err.cause.message}` : err.message;
+    console.error(`[${userId}] failed to save sticker "${tag}":`, detail);
     await sock.sendMessage(
       msg.key.remoteJid,
-      { text: `Failed to save sticker: ${err.message}`, edit: msg.key },
+      { text: `Failed to save sticker: ${detail}`, edit: msg.key },
     );
   }
 }
@@ -362,10 +368,30 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
-        const { reply, showTyping, typingDelayMs, block, blockDurationHours, quote, parts, stickerTag } =
-          await forwardMessage({ userId, from: resolvedFrom, text });
+        const {
+          reply,
+          showTyping,
+          typingDelayMs,
+          startDelayMs,
+          block,
+          blockDurationHours,
+          quote,
+          parts,
+          stickerTag,
+        } = await forwardMessage({ userId, from: resolvedFrom, text });
 
         if (reply) {
+          // Waited once, before anything visible happens (typing indicator
+          // or the message itself) -- a person notices a message and
+          // decides to reply before their thumbs move at all, regardless of
+          // whether a typing indicator is even shown. Without this, higher
+          // humanlikeness only ever affected the *typing indicator's*
+          // timing, so a reply with showTyping off still fired the instant
+          // the message arrived.
+          if (startDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, startDelayMs));
+          }
+
           // A split reply (humanlikeness "split" style) sends each part as
           // its own message with a brief gap, each preceded by its own
           // typing indicator if enabled -- a single-part reply is just the

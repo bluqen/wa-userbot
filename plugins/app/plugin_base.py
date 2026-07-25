@@ -25,6 +25,11 @@ class Reply:
     text: Optional[str] = None
     show_typing: bool = False
     typing_delay_ms: int = 0
+    # How long to wait before reacting at all -- before showing typing or
+    # sending anything -- so a reply doesn't fire the instant a message
+    # arrives even when show_typing is off. See ai_reply.py's
+    # _compute_start_delay_ms.
+    start_delay_ms: int = 0
     block: bool = False
     block_duration_hours: int = 0
     # Reply to the specific incoming message (WhatsApp's "swipe reply")

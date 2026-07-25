@@ -58,6 +58,20 @@ function closestHumanlikenessLevel(value: number) {
   );
 }
 
+const STICKER_CHANCE_LEVELS = [
+  { value: 0, label: 'Never', description: 'Never sends a sticker (default).' },
+  { value: 25, label: 'Rare', description: 'Only occasionally, when one clearly fits.' },
+  { value: 50, label: 'Sometimes', description: 'Fairly often, when a reply calls for it.' },
+  { value: 75, label: 'Often', description: 'Frequently reaches for a sticker.' },
+  { value: 100, label: 'Always', description: 'Tries to include one on every reply that can.' },
+] as const;
+
+function closestStickerChanceLevel(value: number) {
+  return STICKER_CHANCE_LEVELS.reduce((closest, level) =>
+    Math.abs(level.value - value) < Math.abs(closest.value - value) ? level : closest,
+  );
+}
+
 export default function AIReplySettings({
   sessionId,
   value,
@@ -185,19 +199,26 @@ export default function AIReplySettings({
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <label className="text-sm font-medium text-slate-300">Sticker chance</label>
-            <span className="text-xs text-slate-400">{form.stickerChance}</span>
+            <span className="text-xs font-medium text-emerald-400">
+              {closestStickerChanceLevel(form.stickerChance).label}
+            </span>
           </div>
           <input
             type="range"
             min={0}
             max={100}
+            step={25}
             value={form.stickerChance}
             onChange={(e) => setForm({ ...form, stickerChance: Number(e.target.value) })}
             className="w-full accent-emerald-500"
           />
-          <p className="mt-1 text-xs text-slate-500">
-            0 = never (default). How often a reply might include a sticker, when one genuinely
-            fits.
+          <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+            {STICKER_CHANCE_LEVELS.map((level) => (
+              <span key={level.value}>{level.label}</span>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-slate-500">
+            {closestStickerChanceLevel(form.stickerChance).description}
           </p>
         </div>
       )}

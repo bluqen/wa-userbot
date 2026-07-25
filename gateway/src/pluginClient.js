@@ -19,6 +19,7 @@ export async function forwardMessage({ userId, from, text }) {
     reply: data.reply || null,
     showTyping: Boolean(data.show_typing),
     typingDelayMs: Number(data.typing_delay_ms) || 0,
+    startDelayMs: Number(data.start_delay_ms) || 0,
     block: Boolean(data.block),
     blockDurationHours: Number(data.block_duration_hours) || 0,
     quote: Boolean(data.quote),

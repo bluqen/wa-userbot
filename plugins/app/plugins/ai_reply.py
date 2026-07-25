@@ -41,6 +41,20 @@ def _build_sticker_instructions(tags: List[str]) -> str:
 _last_replied: dict[Tuple[str, str], float] = {}
 
 
+def _compute_start_delay_ms(humanlikeness: int) -> int:
+    """How long to wait, doing nothing visible at all, before reacting to a
+    message -- a person notices it and decides to reply before their thumbs
+    ever move, regardless of whether a typing indicator is shown. Applies
+    independently of `showTyping`/`typingDurationMs` below, which only
+    control the *typing indicator itself* once a reply is already underway.
+    At 0, returns 0 (today's instant-reply behavior, unchanged).
+    """
+    if humanlikeness <= 0:
+        return 0
+    jitter = humanlikeness / 100  # 0..1
+    return int(random.uniform(300 * jitter, 300 + 4200 * jitter))
+
+
 def _compute_delay_ms(base_ms: int, humanlikeness: int) -> int:
     """At 0, returns base_ms unchanged -- today's behavior. Above that,
     widens the range randomly sampled around base_ms; higher humanlikeness
@@ -198,6 +212,7 @@ class AIReplyPlugin(Plugin):
 
         humanlikeness = max(0, min(100, int(config.get("humanlikeness", 0))))
         delay_ms = _compute_delay_ms(int(config.get("typingDurationMs", 0)), humanlikeness)
+        start_delay_ms = _compute_start_delay_ms(humanlikeness)
 
         style = _pick_style(humanlikeness, text) if text else "plain"
         parts = _split_into_parts(text) if style == "split" else None
@@ -207,6 +222,7 @@ class AIReplyPlugin(Plugin):
             text=text or None,
             show_typing=bool(config.get("showTyping", False)),
             typing_delay_ms=delay_ms,
+            start_delay_ms=start_delay_ms,
             block=should_block,
             block_duration_hours=int(config.get("blockDurationHours", 0)) if should_block else 0,
             quote=quote,

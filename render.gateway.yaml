@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: wa-bot-gateway
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: gateway
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: PLUGIN_ENGINE_URL
+        sync: false # paste wa-bot-plugins' https://...onrender.com URL after it's deployed
+      - key: DATABASE_URL
+        sync: false # same Aiven connection string as gateway/.env today

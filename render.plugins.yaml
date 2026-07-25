@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: wa-bot-plugins
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: plugins
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: WEB_APP_URL
+        sync: false # paste wa-bot-web's https://...onrender.com URL
+      - key: INTERNAL_API_SECRET
+        sync: false # must exactly match the value entered for wa-bot-web
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash

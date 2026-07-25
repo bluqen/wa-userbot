@@ -38,19 +38,27 @@ web app's Postgres database, fetched per request.
   automated bot and the two reply to each other back-to-back at machine
   speed -- a real human conversation never gets remotely close to the
   threshold.
-- `app/llm.py` -- shared Groq-then-Gemini-fallback LLM client, used by both
-  `ai_reply` and `ai_write`. Supports multi-turn history (Groq: OpenAI-style
-  `messages` array; Gemini: `contents` with role `model` instead of
-  `assistant`).
+- `app/llm.py` -- shared LLM client, used by both `ai_reply` and
+  `ai_write`. Tries `GROQ_MODEL`, then each of `GROQ_FALLBACK_MODELS` (env
+  var, comma-separated, defaults to `llama-3.1-8b-instant`) before falling
+  back to Gemini -- Groq's rate limits are per-model, not account-wide, so
+  a different model can still have headroom when the primary one is
+  capped. Supports multi-turn history (Groq: OpenAI-style `messages`
+  array; Gemini: `contents` with role `model` instead of `assistant`).
 - `app/personalities.py` -- loads `../personalities.json` (repo root, 100
   entries, shared with the web dashboard's dropdown).
 - `app/plugins/autoreply.py`, `ai_reply.py` -- real `Plugin` subclasses,
   auto-discovered. `ai_reply.py` also supports opt-in blocking (see
   "Blocking abusive contacts" below).
 - `app/plugins/ai_write.py` -- **not** a `Plugin` subclass (different
-  shape: `should_process()` / `rewrite()`, since it acts on the owner's own
+  shape: `should_process(session_id, chat_jid, text)` /
+  `rewrite(session_id, chat_jid, text)`, since it acts on the owner's own
   messages, not incoming ones). Instantiated directly in `main.py`'s
-  `/rewrite` handler.
+  `/rewrite` handler. Has its own opt-in `cooldownMinutes` (per
+  session+chat, default 0/off) to throttle LLM call volume if a burst of
+  the owner's own messages is causing rate-limit errors -- separate from
+  `rate_limiter.py`'s circuit breaker, which is about auto-reply loops,
+  not the owner's own outgoing messages.
 
 ## Blocking abusive contacts
 

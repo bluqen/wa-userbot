@@ -1,4 +1,5 @@
-from typing import Optional
+import time
+from typing import Optional, Tuple
 
 from .. import llm
 from ..personalities import get_personality_prompt
@@ -24,6 +25,13 @@ FIX_ERRORS_INSTRUCTION = (
     "clear mistakes, don't rephrase things that are already fine."
 )
 
+# (session_id, chat_jid) -> unix timestamp of the last rewrite attempt.
+# Off by default (cooldownMinutes: 0) -- this exists so a burst of the
+# owner's own messages in one chat can be throttled to reduce LLM call
+# volume (helps avoid the free-tier-provider 429s this project has hit in
+# practice), without changing behavior for anyone who hasn't opted in.
+_last_rewritten: dict[Tuple[str, str], float] = {}
+
 
 class AIWritePlugin:
     """Instantly edits the userbot owner's own outgoing messages -- fixing
@@ -36,7 +44,7 @@ class AIWritePlugin:
     def __init__(self, config: dict):
         self.config = config or {}
 
-    def should_process(self, chat_jid: str, text: str) -> bool:
+    def should_process(self, session_id: str, chat_jid: str, text: str) -> bool:
         is_group = chat_jid.endswith("@g.us")
         if is_group and not self.config.get("applyInGroups", False):
             return False
@@ -45,9 +53,21 @@ class AIWritePlugin:
         if len(text.strip()) < min_length:
             return False
 
+        cooldown_minutes = int(self.config.get("cooldownMinutes", 0))
+        if cooldown_minutes:
+            last = _last_rewritten.get((session_id, chat_jid))
+            if last and (time.time() - last) < cooldown_minutes * 60:
+                return False
+
         return llm.has_provider()
 
-    def rewrite(self, text: str) -> Optional[str]:
+    def rewrite(self, session_id: str, chat_jid: str, text: str) -> Optional[str]:
+        # Recorded on every attempt, not just successful edits -- an LLM
+        # call was made either way, and cutting call volume is the point.
+        cooldown_minutes = int(self.config.get("cooldownMinutes", 0))
+        if cooldown_minutes:
+            _last_rewritten[(session_id, chat_jid)] = time.time()
+
         style_id = self.config.get("styleId", "fix-errors")
 
         if style_id == "custom":

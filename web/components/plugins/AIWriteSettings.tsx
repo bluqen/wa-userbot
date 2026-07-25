@@ -9,6 +9,7 @@ export type AIWriteSettingsValue = {
   extraInstructions: string;
   applyInGroups: boolean;
   minLength: number;
+  cooldownMinutes: number;
 };
 
 const GROUPS = personalitiesByCategory();
@@ -126,6 +127,24 @@ export default function AIWriteSettings({
         <p className="mt-1 text-xs text-slate-500">
           Skips short messages like &quot;ok&quot; or a single emoji, where an edit isn&apos;t
           worth it.
+        </p>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">
+          Cooldown per chat (minutes)
+        </label>
+        <input
+          type="number"
+          min={0}
+          value={form.cooldownMinutes}
+          onChange={(e) => setForm({ ...form, cooldownMinutes: Math.max(0, Number(e.target.value)) })}
+          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          0 = every message gets a chance at editing. Otherwise, skips further edits in the same
+          chat until this many minutes have passed since the last attempt -- useful if you're
+          hitting AI provider rate limits from a burst of your own messages.
         </p>
       </div>
 

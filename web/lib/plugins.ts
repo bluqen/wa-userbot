@@ -47,6 +47,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     extraInstructions: '',
     applyInGroups: false,
     minLength: 4,
+    cooldownMinutes: 0,
   },
 };
 

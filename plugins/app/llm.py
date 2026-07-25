@@ -7,6 +7,16 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+# Groq's rate limits are per-model, not account-wide -- when the primary
+# model is capped (429, seen in practice hitting both Groq and Gemini at
+# once during a burst of AI Write calls), a different model can still have
+# headroom. Tried in order, before falling back to Gemini.
+GROQ_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.environ.get("GROQ_FALLBACK_MODELS", "llama-3.1-8b-instant").split(",")
+    if m.strip()
+]
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 GEMINI_URL = (
@@ -34,9 +44,10 @@ def generate(
     just flattened into the prompt text, so the model can actually use it.
     """
     if GROQ_API_KEY:
-        text = _generate_groq(system_prompt, user_message, history, max_tokens, temperature)
-        if text:
-            return text
+        for model in [GROQ_MODEL, *GROQ_FALLBACK_MODELS]:
+            text = _generate_groq(system_prompt, user_message, history, max_tokens, temperature, model)
+            if text:
+                return text
 
     if GEMINI_API_KEY:
         text = _generate_gemini(system_prompt, user_message, history, max_tokens, temperature)
@@ -52,6 +63,7 @@ def _generate_groq(
     history: Optional[List[dict]],
     max_tokens: int,
     temperature: float,
+    model: str,
 ) -> Optional[str]:
     try:
         messages = [{"role": "system", "content": system_prompt}]
@@ -68,7 +80,7 @@ def _generate_groq(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": GROQ_MODEL,
+                    "model": model,
                     "messages": messages,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
@@ -78,7 +90,7 @@ def _generate_groq(
             data = res.json()
             return data["choices"][0]["message"]["content"].strip()
     except Exception as exc:
-        print(f"[llm] Groq request failed, will try Gemini if configured: {exc}")
+        print(f"[llm] Groq ({model}) request failed: {exc}")
         return None
 
 

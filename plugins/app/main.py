@@ -127,11 +127,11 @@ async def handle_rewrite(msg: IncomingMessage):
         return RewriteResponse(rewritten=None)
 
     plugin = AIWritePlugin(entry.get("settings") or {})
-    if not plugin.should_process(msg.from_jid, msg.text):
+    if not plugin.should_process(msg.user_id, msg.from_jid, msg.text):
         return RewriteResponse(rewritten=None)
 
     try:
-        rewritten = plugin.rewrite(msg.text)
+        rewritten = plugin.rewrite(msg.user_id, msg.from_jid, msg.text)
     except Exception as exc:
         print(f"[ai_write] error: {exc}")
         return RewriteResponse(rewritten=None)

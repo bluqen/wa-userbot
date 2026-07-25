@@ -122,6 +122,23 @@ All configured per WhatsApp session from the dashboard's Plugins page
 (`/dashboard/sessions/[id]/plugins`). Each is a card: toggle to
 enable/disable, expand to edit settings.
 
+## Admin panel
+
+`/dashboard/admin`, restricted to emails listed in `ADMIN_EMAILS` (comma-
+separated env var in `web/.env` -- redeploy needed to change). Two
+sections:
+
+- **Sessions** (`/dashboard/admin/sessions`) -- every WhatsApp session
+  across every account, not just the logged-in admin's own. Disconnect,
+  reconnect, or remove any session; each row shows the owning account's
+  email and which shard it's assigned to.
+- **Shards** (`/dashboard/admin/shards`) -- the pool of gateway instances
+  new sessions get assigned to, backed by a `GatewayShard` table instead
+  of a static env var, so it's editable at runtime without a redeploy. New
+  shards get an auto-assigned fruit name (apple, apricot, ...) if you
+  don't type one in. Click a shard to see the sessions currently assigned
+  to it.
+
 - **Auto Reply** -- fixed message, optional group-chat replies, typing
   simulation, per-contact cooldown, per-contact exceptions.
 - **AI Reply** -- LLM-generated replies. Pick from 100 personalities (see
@@ -160,13 +177,25 @@ Then add it to `web/lib/plugins.ts` (key, name, description, defaults) so
 it gets a card on the dashboard, and build a settings component if it
 needs configuration beyond enable/disable.
 
+## Deployment
+
+Deployed to Render (free tier), one service per Render workspace so each
+gets its own free-tier quota -- see `render.gateway.yaml`,
+`render.plugins.yaml`, `render.web.yaml` at the repo root (each is a
+standalone Blueprint file; point Render's Blueprint Path at the relevant
+one per workspace). UptimeRobot pings each service's `/health`
+(`/api/health` for web) to fight Render's free-tier inactivity spin-down.
+Current live URLs and full deployment notes are in `STATUS.md`.
+
 ## Known limitations
 
-- No rate limiting/abuse protection on outgoing replies yet -- bulk
-  messaging risk with an unofficial WhatsApp client (Baileys). Keep volume
+- A per-contact reply rate limiter (`plugins/app/rate_limiter.py`) guards
+  against runaway bot-vs-bot reply loops, but there's still no general
+  abuse protection against a real user spamming the bot -- bulk messaging
+  risk remains with an unofficial WhatsApp client (Baileys). Keep volume
   reasonable.
-- Shard routing (`GATEWAY_SHARD_URLS`) supports multiple gateway instances
-  but only one is actually running right now.
-- Not yet deployed anywhere -- still running locally. See `STATUS.md` for
-  the hosting plan (Render free tier + UptimeRobot).
-- See `STATUS.md` for the current in-progress work and open questions.
+- Shard routing supports multiple gateway instances (managed from
+  `/dashboard/admin/shards`, falling back to `GATEWAY_SHARD_URLS`/
+  `GATEWAY_URL` when no shards are registered), but only one gateway
+  instance is actually running right now.
+- See `STATUS.md` for current deployment details and anything in progress.

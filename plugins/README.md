@@ -8,12 +8,17 @@ web app's Postgres database, fetched per request.
 
 ## Files
 
-- `app/main.py` -- the two FastAPI routes. `/message` fetches this
-  session's plugin configs + recent chat history in one call, saves the
-  incoming message to history, runs plugins in priority order until one
-  replies, saves the reply to history too. `/rewrite` runs the AI Write
-  plugin directly (it isn't part of the auto-discovered reply-plugin set --
-  see below).
+- `app/main.py` -- the FastAPI routes. `/message` fetches this session's
+  plugin configs + recent chat history in one call, saves the incoming
+  message to history (fire-and-forget -- see "Latency" below), runs a
+  global reply-rate check, then runs plugins in priority order until one
+  replies, saving the reply to history too (also fire-and-forget).
+  `/rewrite` runs the AI Write plugin directly (it isn't part of the
+  auto-discovered reply-plugin set -- see below). `GET
+  /session/{id}/exception-numbers` returns every phone number this
+  session has a per-contact exception configured for, across all plugins
+  -- called by the gateway to resolve LID-addressed contacts back to a
+  phone number (see `gateway/README.md`'s "LID resolution").
 - `app/plugin_base.py` -- `MessageContext` (includes `history`), `Reply`,
   the `Plugin` ABC, and `resolve_settings()` (the per-contact exceptions
   merge logic, shared by autoreply and ai_reply).
@@ -22,7 +27,17 @@ web app's Postgres database, fetched per request.
   sorted by priority.
 - `app/session_config.py` -- talks to the web app's internal API
   (`fetch_session_plugins`, `fetch_session_context`, `save_message`),
-  authenticated via a shared secret header (`INTERNAL_API_SECRET`).
+  authenticated via a shared secret header (`INTERNAL_API_SECRET`). Each
+  call has a 5-second timeout -- if the web app is cold-starting (e.g. on
+  Render free tier after inactivity spin-down), calls here fail and
+  `/message` returns no reply rather than waiting it out.
+- `app/rate_limiter.py` -- a global circuit breaker independent of any
+  plugin's own cooldown setting: caps a single contact to 6 auto-replies
+  per 60 seconds, then pauses replies to that contact for 5 minutes. Exists
+  specifically to stop the case where the other side is *also* an
+  automated bot and the two reply to each other back-to-back at machine
+  speed -- a real human conversation never gets remotely close to the
+  threshold.
 - `app/llm.py` -- shared Groq-then-Gemini-fallback LLM client, used by both
   `ai_reply` and `ai_write`. Supports multi-turn history (Groq: OpenAI-style
   `messages` array; Gemini: `contents` with role `model` instead of
@@ -35,6 +50,16 @@ web app's Postgres database, fetched per request.
   shape: `should_process()` / `rewrite()`, since it acts on the owner's own
   messages, not incoming ones). Instantiated directly in `main.py`'s
   `/rewrite` handler.
+
+## Latency
+
+Both `save_message()` calls in `/message` are scheduled with
+`asyncio.create_task(...)` rather than `await`ed -- neither reply
+generation nor delivery depends on the history write completing, so
+there's no reason to block on a round trip through web's internal API to
+Postgres for it. `save_message()` already catches and logs its own
+errors, so a failed save behaves the same as before (silently logged),
+just no longer serialized in front of the reply.
 
 ## The `Plugin` interface (reply plugins)
 
@@ -86,14 +111,17 @@ digits in `ctx.from_jid`, and shallow-merges `overrides` onto the base
 config if found. `overrides.enabled: false` is the convention for
 "exclude this contact entirely."
 
-**Known open issue**: this matches on phone number extracted from the
-JID. WhatsApp sometimes addresses a contact by an opaque "LID" (e.g.
-`17206192644250@lid`) instead of their real number in `remoteJid` -- if
-that happens, phone-number matching won't find the exception. Not yet
-confirmed how often this actually occurs in practice; see `STATUS.md`.
-There's a debug line already in `main.py`'s `/message` handler
-(`print(f"[debug] incoming message from_jid=...")`) to inspect real
-traffic if this needs investigating further.
+This matches on phone number extracted from the JID. WhatsApp sometimes
+addresses a contact by an opaque "LID" (e.g. `17206192644250@lid`) instead
+of their real number in `remoteJid` -- confirmed this really happens in
+practice (not just a hypothetical), and fixed on the gateway side: the
+gateway resolves LID-addressed messages back to the real phone-number JID
+before they ever reach `/message`, so `from_jid` here is always a phone
+number by the time exceptions matching runs. See `gateway/README.md`'s
+"LID resolution" section for how. The `GET
+/session/{id}/exception-numbers` route above exists specifically to
+support that resolution (the gateway calls it to know which phone numbers
+are even worth resolving a LID for).
 
 ## Chat history
 
@@ -118,3 +146,10 @@ imports every plugin module at import time, and plugins read API keys from
 `os.environ` at *their own* module-import time. If `.env` isn't loaded
 before that happens, those reads silently bake in empty strings. Don't
 reorder the top of `main.py`.
+
+**Health check gotcha**: `GET /health` is declared with
+`@app.api_route("/health", methods=["GET", "HEAD"])`, not a plain
+`@app.get(...)`. FastAPI doesn't auto-accept `HEAD` on a GET-only route
+(unlike Express and Next.js, which do) -- UptimeRobot's default monitor
+method is `HEAD`, and without this it 405s, which UptimeRobot reports as
+the service being down even though it's actually fine.

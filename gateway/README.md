@@ -9,19 +9,24 @@ in `whatsappManager.js`).
 
 - `src/index.js` -- Express routes: `POST /session/:userId/pair`,
   `GET /session/:userId/status`, `POST /session/:userId/logout`,
-  `POST /session/:userId/reconnect`.
+  `POST /session/:userId/reconnect`, `GET /health` (used by Render's
+  health check and the UptimeRobot monitor).
 - `src/whatsappManager.js` -- the core: `startSession`, `reconnectSession`,
   `logoutSession`, `sessionStatus`. Handles pairing-code flow, auto-reconnect
-  on transient disconnects, and the `messages.upsert` handler that routes
+  on transient disconnects (with capped exponential backoff -- see
+  "Baileys gotchas" below), the `messages.upsert` handler that routes
   incoming messages to the plugin engine (`/message`) and the owner's own
-  outgoing messages to the rewrite flow (`/rewrite`).
+  outgoing messages to the rewrite flow (`/rewrite`), and LID-to-phone-number
+  resolution (see "LID resolution" below).
 - `src/postgresAuthState.js` -- Postgres-backed replacement for Baileys'
   own `useMultiFileAuthState`. Same shape, same `BufferJSON` serialization,
   just a DB table instead of local files, so credentials survive the
   process/disk being thrown away. Lives in its own `gateway` Postgres
   schema -- see "Database" below for why that matters.
 - `src/pluginClient.js` -- HTTP client for the plugin engine
-  (`forwardMessage`, `forwardOwnMessage`).
+  (`forwardMessage`, `forwardOwnMessage`, `fetchExceptionNumbers` -- the
+  phone numbers this session has exceptions configured for, used for LID
+  resolution).
 
 ## Database
 
@@ -57,9 +62,37 @@ The gateway itself doesn't know or care about sharding -- it just holds
 whatever sessions it's told to. The web app decides which gateway instance
 a session belongs to (`WaSession.gatewayUrl`, see `web/lib/shards.ts`) and
 always talks to that specific instance. To add a second gateway instance:
-run another copy of this service somewhere, add its URL to
-`GATEWAY_SHARD_URLS` in `web/.env`, done -- new sessions will start being
-assigned to it.
+run another copy of this service somewhere, then register its URL from
+the website's admin panel (`/dashboard/admin/shards`, restricted to
+`ADMIN_EMAILS`) -- new sessions start being assigned to it immediately,
+no redeploy needed. `GATEWAY_SHARD_URLS` in `web/.env` still works too, as
+a fallback used only when no shards are registered in the admin panel.
+
+## LID resolution
+
+WhatsApp sometimes addresses a contact by an opaque numeric "LID" (e.g.
+`8298212384985@lid`) instead of their phone number in
+`msg.key.remoteJid`. Per-contact plugin settings (exceptions) are
+configured by phone number, so a message arriving addressed by LID would
+silently never match its own exception.
+
+Fixed by asking WhatsApp directly, rather than trying to reverse a LID
+back to a number (WhatsApp's contacts.upsert/update events rarely carry
+that mapping in practice): on connect, and every 5 minutes after, each
+session calls the plugin engine's `GET /session/{id}/exception-numbers` to
+get every phone number it has an exception configured for, then calls
+`sock.onWhatsApp(...)` on each to get that number's LID, and caches the
+`LID -> phone-number JID` mapping (`lidToPhoneJid` in
+`whatsappManager.js`). Incoming messages get resolved through that map
+before being handed to the plugin engine -- `msg.key.remoteJid` itself is
+left untouched for actual sends (WhatsApp still expects the original
+addressing there), only the identifier passed to `forwardMessage`/
+`forwardOwnMessage` (used for exception matching and chat history) is
+resolved.
+
+Limitation: a number only resolves once *something* on this session has
+an exception configured for it. There's no bulk/proactive resolution of
+every contact the account has ever talked to.
 
 ## Baileys gotchas worth remembering
 
@@ -88,6 +121,18 @@ assigned to it.
   in logs -- those contacts' messages fail to decrypt entirely and never
   reach the plugin engine. Fix is a clean disconnect (wipes stored creds)
   + fresh pairing code, not something to debug further when it happens.
+  The worst version of this -- two live gateway connections for the same
+  real WhatsApp number at once -- is now blocked at the source: `web/`'s
+  `POST /api/sessions` rejects pairing a number that's already paired in
+  another non-disconnected session.
+- **Auto-reconnect backoff**: if the automatic reconnect after a dropped
+  connection fails outright (e.g. a transient DNS/network blip reaching
+  Postgres for stored creds), it retries with capped exponential backoff
+  (5s, 10s, 20s, ... up to a 5 min cap) indefinitely rather than giving up
+  after one attempt -- `scheduleReconnect()` in `whatsappManager.js`. It
+  checks against explicit disconnects (`logoutSession`) so a retry that
+  was already scheduled when someone hits "Disconnect" doesn't turn
+  around and open an unwanted fresh pairing attempt.
 
 ## Windows dev quirk
 

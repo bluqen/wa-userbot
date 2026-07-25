@@ -233,10 +233,36 @@ broken -- Render free tier does spin down without traffic even with
 UptimeRobot pinging if the ping itself is failing (check its incident log
 for the *specific* error, not just "down").
 
+## Fixed after initial deployment
+
+- **Sessions didn't survive a gateway restart** -- Render redeploys (or
+  any crash) wiped the gateway's in-memory session map with nothing to
+  restore it; a session would sit dead until someone manually clicked
+  "Reconnect" on the dashboard. Fixed: on startup, the gateway now asks
+  the web app (`GET /api/internal/gateway-sessions?gatewayUrl=...`,
+  gated by `INTERNAL_API_SECRET`) which sessions belong to it and
+  reconnects each one automatically. Requires three new gateway env vars:
+  `PUBLIC_URL`, `WEB_APP_URL`, `INTERNAL_API_SECRET` -- see
+  `gateway/README.md`'s "Startup reconnect" section. **Needs these three
+  vars added to the deployed `wa-bot-gateway` service on Render** (not
+  required before this fix) for it to actually take effect there.
+- **Postgres connection exhaustion** -- Aiven's free tier caps total
+  connections at 20, several already reserved for its own background
+  workers; neither Prisma's nor `pg.Pool`'s default pool sizes were
+  capped, so web + gateway together (especially during Render's brief
+  old+new-instance overlap on a rolling deploy) could exceed it, throwing
+  `P2037` in web's logs and breaking everything downstream of a DB read.
+  Both pools now capped to 3.
+- **Crash opening AI Reply settings on sessions predating the knowledge-
+  base field** -- plugin settings were returned as-saved with no merge
+  against the defaults, so a field added after a session's settings were
+  first saved came back missing entirely. Both plugin-config API routes
+  now merge saved settings over defaults.
+
 ## Nothing currently in progress
 
-Everything tracked in earlier versions of this file (LID matching, the
+Everything above and in earlier versions of this file (LID matching, the
 Bad MAC duplicate-session issue, hosting deployment) is resolved and
-verified live, both locally and on Render. Next steps are whatever the
-project owner wants next -- there's no dangling half-finished work to pick
-up.
+verified live, both locally and on Render -- **except the startup-
+reconnect env vars still need adding to the deployed gateway service**
+(see above). Next steps are whatever the project owner wants next.

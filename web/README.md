@@ -25,6 +25,11 @@ configuration.
   a shared secret header (`x-internal-secret` must match
   `INTERNAL_API_SECRET`). Called by the Python plugin engine to fetch
   config+history and to append chat messages.
+- `app/api/internal/gateway-sessions` -- same shared-secret gating.
+  Called by a gateway instance on startup (`?gatewayUrl=<its own URL>`) to
+  find out which sessions it used to hold before the process restarted, so
+  it can reconnect them automatically instead of sitting dead until
+  someone clicks "Reconnect."
 - `app/api/admin/sessions/*`, `app/api/admin/shards/*` -- admin-only (see
   "Admin panel" below), gated by `lib/admin.ts`'s `requireAdmin()` (a
   logged-in user *and* their email in `ADMIN_EMAILS`), not the internal

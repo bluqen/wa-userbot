@@ -13,3 +13,9 @@ services:
         sync: false # paste wa-bot-plugins' https://...onrender.com URL after it's deployed
       - key: DATABASE_URL
         sync: false # same Aiven connection string as gateway/.env today
+      - key: PUBLIC_URL
+        sync: false # this service's own https://...onrender.com URL -- must match GATEWAY_URL on wa-bot-web exactly
+      - key: WEB_APP_URL
+        sync: false # paste wa-bot-web's https://...onrender.com URL
+      - key: INTERNAL_API_SECRET
+        sync: false # must exactly match the value entered for wa-bot-web and wa-bot-plugins

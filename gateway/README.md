@@ -10,7 +10,12 @@ in `whatsappManager.js`).
 - `src/index.js` -- Express routes: `POST /session/:userId/pair`,
   `GET /session/:userId/status`, `POST /session/:userId/logout`,
   `POST /session/:userId/reconnect`, `GET /health` (used by Render's
-  health check and the UptimeRobot monitor).
+  health check and the UptimeRobot monitor). On startup, also asks the web
+  app (via `webClient.js`) which sessions belong to this instance and
+  reconnects each one -- see "Startup reconnect" below.
+- `src/webClient.js` -- `fetchSessionsForGateway(gatewayUrl)`, the one call
+  this service makes to the web app's internal API (everything else is the
+  other direction: web calls gateway).
 - `src/whatsappManager.js` -- the core: `startSession`, `reconnectSession`,
   `logoutSession`, `sessionStatus`. Handles pairing-code flow, auto-reconnect
   on transient disconnects (with capped exponential backoff -- see
@@ -55,6 +60,24 @@ certificate validation, which fails against Aiven's certs. The connection
 string has that param stripped before being passed to `pg.Pool`, with an
 explicit `ssl: { rejectUnauthorized: false }` instead. Copy this pattern
 if you add more raw `pg` usage anywhere.
+
+## Startup reconnect
+
+The in-memory `sessions` Map starts empty every time this process starts
+-- a Render redeploy, a crash, anything -- and nothing else automatically
+tells previously-live sessions to come back; the dashboard would just sit
+there showing "Reconnect" until someone clicked it. Fixed: on `app.listen`,
+the gateway asks the web app's `GET /api/internal/gateway-sessions
+?gatewayUrl=...` for every session assigned to `PUBLIC_URL` that isn't
+explicitly disconnected, then calls `reconnectSession()` on each --
+same logic the dashboard's manual "Reconnect" button uses (tries saved
+creds first, only needs a human if those no longer work, e.g. the device
+was actually unlinked from the phone).
+
+Requires three env vars this service didn't need before: `PUBLIC_URL`
+(this instance's own URL -- must match its `gatewayUrl` on sessions
+exactly), `WEB_APP_URL`, and `INTERNAL_API_SECRET` (must match `web/.env`
+and `plugins/.env`).
 
 ## Multi-instance / sharding
 

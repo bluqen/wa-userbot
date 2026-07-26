@@ -30,6 +30,15 @@ BREVITY_INSTRUCTIONS = (
     "a sentence or two at most, never a long paragraph."
 )
 
+SPLIT_MARKER = "[[SPLIT]]"
+
+SPLIT_INSTRUCTIONS = (
+    "\n\nWrite this reply as two short separate text messages sent back to "
+    "back, like a quick reply followed by a quick extra thought -- put the "
+    "exact text " + SPLIT_MARKER + " between them, with nothing else on "
+    "either side of it. Keep each part short."
+)
+
 STICKER_MARKER_RE = re.compile(r"\[\[STICKER:([a-z0-9_-]+)\]\]", re.IGNORECASE)
 
 
@@ -137,35 +146,24 @@ def _truncate_naturally(text: str, max_chars: int) -> str:
     return truncated[:last_space] if last_space > max_chars * 0.5 else truncated
 
 
-def _split_into_parts(text: str) -> Optional[List[str]]:
-    """Splits a reply into two messages at a sentence boundary, the way a
-    person often sends a quick follow-up instead of one longer message.
-    Only returns a split for text that actually has 2+ sentences -- a
-    short one-liner has nothing sensible to split, so this returns None
-    and the caller falls back to a single plain message.
-    """
-    sentences = [s for s in _SENTENCE_SPLIT.split(text.strip()) if s]
-    if len(sentences) < 2:
-        return None
-    midpoint = len(sentences) // 2
-    part1 = " ".join(sentences[:midpoint]).strip()
-    part2 = " ".join(sentences[midpoint:]).strip()
-    if not part1 or not part2:
-        return None
-    return [part1, part2]
-
-
-def _pick_style(humanlikeness: int, text: str) -> str:
+def _pick_style(humanlikeness: int) -> str:
     """Returns 'plain', 'quote', or 'split' -- mutually exclusive per
     reply, weighted by humanlikeness. At 0, always 'plain' (today's
-    behavior, unchanged). 'split' only gets picked if the text actually
-    has something splittable.
+    behavior, unchanged).
+
+    Decided *before* the LLM call, not inferred afterward from whatever
+    text happens to come back -- 'split' needs to be requested as part of
+    the prompt (see SPLIT_MARKER) so the model actually writes two short
+    parts on purpose. Inferring it after the fact by checking whether the
+    generated text happened to contain 2+ sentences doesn't reliably work
+    once the prompt is also asking for brevity (a good short reply is
+    often exactly one sentence), which is what made split rarely ever
+    trigger in practice.
     """
     if humanlikeness <= 0:
         return "plain"
     weight = humanlikeness / 100
-    can_split = _split_into_parts(text) is not None
-    split_p = 0.4 * weight if can_split else 0
+    split_p = 0.4 * weight
     quote_p = 0.35 * weight
     roll = random.random()
     if roll < split_p:
@@ -249,6 +247,12 @@ class AIReplyPlugin(Plugin):
         if humanlikeness >= 50:
             system_prompt += BREVITY_INSTRUCTIONS
 
+        # Decided now, before generation, rather than inferred afterward --
+        # 'split' needs the model to actually be asked for two short parts.
+        style = _pick_style(humanlikeness)
+        if style == "split":
+            system_prompt += SPLIT_INSTRUCTIONS
+
         history_length = int(config.get("historyLength", 10))
         history = ctx.history[-history_length:] if history_length > 0 else []
 
@@ -283,15 +287,33 @@ class AIReplyPlugin(Plugin):
             if offer_sticker and candidate in ctx.sticker_tags:
                 sticker_tag = candidate
 
+        # Same shape again: strip the marker regardless (defense in depth
+        # against it leaking even when a split wasn't requested), only
+        # actually form two parts if a split was requested this turn *and*
+        # the model cooperated with a marker splitting the text into two
+        # genuinely non-empty pieces. If it didn't (ignored the
+        # instruction, or split into empty halves), this just falls back
+        # to sending `text` as a single plain message below -- same as
+        # today's behavior when nothing splittable came back.
+        parts = None
+        if SPLIT_MARKER in text:
+            raw_parts = [p.strip() for p in text.split(SPLIT_MARKER) if p.strip()]
+            text = " ".join(raw_parts)
+            if style == "split" and len(raw_parts) >= 2:
+                parts = raw_parts[:2]
+
         # Backstop for whenever the brevity instruction and the tighter
         # token budget above still weren't enough on their own -- applied
-        # after marker stripping so the cap reflects the actual visible
-        # message length, and before the split/quote logic below so a
-        # trimmed reply doesn't get split inconsistently against its
-        # already-truncated self.
+        # after all marker stripping so the cap reflects the actual
+        # visible message length(s), each part capped independently so a
+        # split reply can't sneak a long paragraph into either half.
         max_chars = _max_reply_chars(humanlikeness)
         if max_chars:
-            text = _truncate_naturally(text, max_chars)
+            if parts:
+                parts = [_truncate_naturally(p, max_chars) for p in parts]
+                text = " ".join(parts)
+            else:
+                text = _truncate_naturally(text, max_chars)
 
         cooldown_minutes = config.get("cooldownMinutes", 0)
         if cooldown_minutes:
@@ -307,8 +329,6 @@ class AIReplyPlugin(Plugin):
         delay_ms = _compute_delay_ms(base_typing_ms, humanlikeness)
         start_delay_ms = _compute_start_delay_ms(humanlikeness)
 
-        style = _pick_style(humanlikeness, text) if text else "plain"
-        parts = _split_into_parts(text) if style == "split" else None
         quote = style == "quote"
 
         return Reply(

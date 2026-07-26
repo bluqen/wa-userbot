@@ -5,6 +5,21 @@ import { startSession, sessionStatus, logoutSession, reconnectSession } from './
 import { fetchSessionsForGateway, describeFetchError } from './webClient.js';
 import { startScheduler } from './scheduler.js';
 
+// This process holds every paired session on this shard at once -- Baileys
+// occasionally throws from deep inside its own internal retry/relay
+// handling (e.g. servicing a decrypt-retry request against a socket that's
+// already closing) in a way that never reaches any of our own try/catch
+// blocks, since it originates inside the library's own event handling, not
+// a call we make directly. Without a top-level safety net, that one
+// session's hiccup crashes this entire process and disconnects every other
+// paired session on the shard along with it. Log and keep running instead.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (gateway kept running):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (gateway kept running):', err);
+});
+
 const app = express();
 app.use(cors());
 app.use(express.json());

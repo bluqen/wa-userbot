@@ -455,9 +455,11 @@ export async function startSession(userId, phoneNumber) {
             if (buffer) {
               const sentSticker = await sock.sendMessage(msg.key.remoteJid, { sticker: buffer });
               markAiSent(sentSticker?.key?.id);
+            } else {
+              console.error(`[${userId}] sticker "${stickerTag}" not found (deleted since?)`);
             }
           } catch (err) {
-            console.error(`[${userId}] failed to send sticker "${stickerTag}":`, err.message);
+            console.error(`[${userId}] failed to send sticker "${stickerTag}":`, describeFetchError(err));
           }
         }
 

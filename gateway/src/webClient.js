@@ -80,11 +80,18 @@ export async function saveSticker({ sessionId, tag, data, mimetype }) {
 
 // Fetches one saved sticker's binary (as a Buffer) by session+tag, right
 // before sending it. Returns null on a 404 -- the tag may have been
-// deleted since the plugin engine last knew about it.
+// deleted since the plugin engine last knew about it. Same reasoning as
+// saveSticker's timeout below -- without one, a slow/hung request here
+// fails silently from the WhatsApp side: the reply text still sends fine
+// (a separate, independent call), so the only symptom is "sometimes the
+// sticker just doesn't show up," with nothing pointing at why.
 export async function fetchSticker(sessionId, tag) {
   const res = await fetch(
     `${WEB_APP_URL}/api/internal/stickers/${encodeURIComponent(sessionId)}/${encodeURIComponent(tag)}`,
-    { headers: { 'x-internal-secret': INTERNAL_API_SECRET } },
+    {
+      headers: { 'x-internal-secret': INTERNAL_API_SECRET },
+      signal: AbortSignal.timeout(15000),
+    },
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`web app responded ${res.status}`);

@@ -43,7 +43,7 @@ export default function SessionsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold">Sessions</h1>
           <p className="mt-1 text-sm text-slate-400">
@@ -52,7 +52,7 @@ export default function SessionsPage() {
         </div>
         <button
           onClick={() => setModalOpen(true)}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 sm:self-start"
         >
           + Add session
         </button>

@@ -139,13 +139,13 @@ export default function ShardsManager() {
           {envShards.map((env) => (
             <div
               key={env.url}
-              className="flex items-center justify-between rounded-xl border border-dashed border-surface-border bg-surface-raised/50 p-4"
+              className="flex flex-col gap-3 rounded-xl border border-dashed border-surface-border bg-surface-raised/50 p-4 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium text-slate-300">Default (from env)</p>
-                <p className="mt-0.5 text-sm text-slate-400">{env.url}</p>
+                <p className="mt-0.5 truncate text-sm text-slate-400">{env.url}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`text-xs font-medium ${env.inEffect ? 'text-emerald-400' : 'text-slate-500'}`}
                 >
@@ -154,7 +154,7 @@ export default function ShardsManager() {
                 <button
                   onClick={() => handlePromote(env.url)}
                   disabled={promotingUrl === env.url}
-                  className="rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50"
+                  className="rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50 sm:py-1.5"
                 >
                   {promotingUrl === env.url ? 'Adding...' : 'Manage as a shard'}
                 </button>
@@ -171,15 +171,17 @@ export default function ShardsManager() {
           {shards.map((shard) => (
             <div
               key={shard.id}
-              className="flex items-center justify-between rounded-xl border border-surface-border bg-surface-raised p-4"
+              className="flex flex-col gap-3 rounded-xl border border-surface-border bg-surface-raised p-4 sm:flex-row sm:items-center sm:justify-between"
             >
-              <Link href={`/dashboard/admin/shards/${shard.id}`} className="group">
-                <p className="font-medium capitalize group-hover:underline">
+              <Link href={`/dashboard/admin/shards/${shard.id}`} className="group min-w-0">
+                <p className="truncate font-medium capitalize group-hover:underline">
                   {shard.label || shard.url}
                 </p>
-                {shard.label && <p className="mt-0.5 text-sm text-slate-400">{shard.url}</p>}
+                {shard.label && (
+                  <p className="mt-0.5 truncate text-sm text-slate-400">{shard.url}</p>
+                )}
               </Link>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span
                   className={`text-xs font-medium ${shard.active ? 'text-emerald-400' : 'text-slate-500'}`}
                 >
@@ -187,13 +189,13 @@ export default function ShardsManager() {
                 </span>
                 <button
                   onClick={() => handleToggleActive(shard)}
-                  className="rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-surface"
+                  className="rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface sm:py-1.5"
                 >
                   {shard.active ? 'Deactivate' : 'Activate'}
                 </button>
                 <button
                   onClick={() => setConfirmingDelete(shard.id)}
-                  className="rounded-md border border-red-900/50 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-950/30"
+                  className="rounded-md border border-red-900/50 px-3 py-2 text-xs font-medium text-red-400 transition hover:bg-red-950/30 sm:py-1.5"
                 >
                   Remove
                 </button>

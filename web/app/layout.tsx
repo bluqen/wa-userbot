@@ -6,6 +6,11 @@ export const metadata = {
   description: 'Pair your WhatsApp account and manage your autoreply bot',
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark">

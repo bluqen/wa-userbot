@@ -54,6 +54,9 @@ export default function RegisterPage() {
     <main className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
+          <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-lg font-bold text-white">
+            W
+          </span>
           <h1 className="text-2xl font-semibold tracking-tight">WA Bot Console</h1>
           <p className="mt-1 text-sm text-slate-400">Create your account</p>
         </div>

@@ -58,19 +58,19 @@ export default function SessionCard({
   }
 
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-raised p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-medium">{session.label}</h3>
+    <div className="rounded-xl border border-surface-border bg-surface-raised p-4 transition hover:border-slate-600 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate font-medium">{session.label}</h3>
           <p className="mt-0.5 text-sm text-slate-400">+{session.phoneNumber}</p>
         </div>
         <StatusBadge status={session.status} />
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         <Link
           href={`/dashboard/sessions/${session.id}/plugins`}
-          className="rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-surface"
+          className="rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface sm:py-1.5"
         >
           Plugins
         </Link>
@@ -78,7 +78,7 @@ export default function SessionCard({
           <button
             onClick={handleDisconnect}
             disabled={busy}
-            className="rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50"
+            className="rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50 sm:py-1.5"
           >
             Disconnect
           </button>
@@ -86,7 +86,7 @@ export default function SessionCard({
           <button
             onClick={handleReconnect}
             disabled={busy}
-            className="rounded-md border border-emerald-900/50 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-950/30 disabled:opacity-50"
+            className="rounded-md border border-emerald-900/50 px-3 py-2 text-xs font-medium text-emerald-400 transition hover:bg-emerald-950/30 disabled:opacity-50 sm:py-1.5"
           >
             {busy ? 'Reconnecting...' : 'Reconnect'}
           </button>
@@ -94,7 +94,7 @@ export default function SessionCard({
         <button
           onClick={() => setConfirmingRemove(true)}
           disabled={busy}
-          className="rounded-md border border-red-900/50 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-950/30 disabled:opacity-50"
+          className="rounded-md border border-red-900/50 px-3 py-2 text-xs font-medium text-red-400 transition hover:bg-red-950/30 disabled:opacity-50 sm:py-1.5"
         >
           Remove
         </button>

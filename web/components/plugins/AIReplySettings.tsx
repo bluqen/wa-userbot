@@ -169,9 +169,14 @@ export default function AIReplySettings({
           onChange={(e) => setForm({ ...form, humanlikeness: Number(e.target.value) })}
           className="w-full accent-emerald-500"
         />
-        <div className="mt-1 flex justify-between text-[10px] text-slate-500">
-          {HUMANLIKENESS_LEVELS.map((level) => (
-            <span key={level.value}>{level.label}</span>
+        <div className="mt-1 grid grid-cols-5 text-center text-[9px] text-slate-500 sm:text-[10px]">
+          {HUMANLIKENESS_LEVELS.map((level, i) => (
+            <span
+              key={level.value}
+              className={i === 0 ? 'text-left' : i === HUMANLIKENESS_LEVELS.length - 1 ? 'text-right' : ''}
+            >
+              {level.label}
+            </span>
           ))}
         </div>
         <p className="mt-1.5 text-xs text-slate-500">
@@ -212,9 +217,16 @@ export default function AIReplySettings({
             onChange={(e) => setForm({ ...form, stickerChance: Number(e.target.value) })}
             className="w-full accent-emerald-500"
           />
-          <div className="mt-1 flex justify-between text-[10px] text-slate-500">
-            {STICKER_CHANCE_LEVELS.map((level) => (
-              <span key={level.value}>{level.label}</span>
+          <div className="mt-1 grid grid-cols-5 text-center text-[9px] text-slate-500 sm:text-[10px]">
+            {STICKER_CHANCE_LEVELS.map((level, i) => (
+              <span
+                key={level.value}
+                className={
+                  i === 0 ? 'text-left' : i === STICKER_CHANCE_LEVELS.length - 1 ? 'text-right' : ''
+                }
+              >
+                {level.label}
+              </span>
             ))}
           </div>
           <p className="mt-1.5 text-xs text-slate-500">

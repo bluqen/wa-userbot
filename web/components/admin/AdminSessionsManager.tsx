@@ -95,25 +95,25 @@ export default function AdminSessionsManager({
         return (
           <div
             key={s.id}
-            className="rounded-xl border border-surface-border bg-surface-raised p-5"
+            className="rounded-xl border border-surface-border bg-surface-raised p-4 sm:p-5"
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="font-medium">{s.label}</h3>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate font-medium">{s.label}</h3>
                 <p className="mt-0.5 text-sm text-slate-400">+{s.phoneNumber}</p>
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 truncate text-xs text-slate-500">
                   {s.user.email} &middot; {s.shardLabel ? `${s.shardLabel} shard` : s.gatewayUrl}
                 </p>
               </div>
               <StatusBadge status={s.status} />
             </div>
 
-            <div className="mt-4 flex gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {isLive ? (
                 <button
                   onClick={() => handleDisconnect(s.id)}
                   disabled={busy}
-                  className="rounded-md border border-surface-border px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50"
+                  className="rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface disabled:opacity-50 sm:py-1.5"
                 >
                   Disconnect
                 </button>
@@ -121,7 +121,7 @@ export default function AdminSessionsManager({
                 <button
                   onClick={() => handleReconnect(s.id)}
                   disabled={busy}
-                  className="rounded-md border border-emerald-900/50 px-3 py-1.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-950/30 disabled:opacity-50"
+                  className="rounded-md border border-emerald-900/50 px-3 py-2 text-xs font-medium text-emerald-400 transition hover:bg-emerald-950/30 disabled:opacity-50 sm:py-1.5"
                 >
                   {busy ? 'Reconnecting...' : 'Reconnect'}
                 </button>
@@ -129,7 +129,7 @@ export default function AdminSessionsManager({
               <button
                 onClick={() => setConfirmingRemove(s)}
                 disabled={busy}
-                className="rounded-md border border-red-900/50 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-950/30 disabled:opacity-50"
+                className="rounded-md border border-red-900/50 px-3 py-2 text-xs font-medium text-red-400 transition hover:bg-red-950/30 disabled:opacity-50 sm:py-1.5"
               >
                 Remove
               </button>

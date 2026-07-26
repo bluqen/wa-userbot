@@ -227,6 +227,14 @@ class AIReplyPlugin(Plugin):
         if allow_blocking:
             system_prompt += BLOCK_INSTRUCTIONS
 
+        if ctx.is_voice:
+            system_prompt += (
+                "\n\nThe message below was transcribed from a voice note, not typed -- the "
+                "transcription is sometimes slightly wrong (a mis-heard word, missing "
+                "punctuation). Respond naturally to the evident meaning rather than reacting "
+                "to small transcription errors."
+            )
+
         use_sticker = bool(config.get("useSticker", True))
         sticker_chance = max(0, min(100, int(config.get("stickerChance", 0))))
         offer_sticker = (

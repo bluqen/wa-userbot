@@ -23,9 +23,52 @@ GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 )
 
+# Groq also serves Whisper on the same free-tier account/API key already
+# used for chat above -- no separate signup or credential needed to let the
+# bot understand voice notes.
+GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+
 
 def has_provider() -> bool:
     return bool(GROQ_API_KEY or GEMINI_API_KEY)
+
+
+def transcribe_audio(audio_bytes: bytes, mimetype: str) -> Optional[str]:
+    """Transcribes a WhatsApp voice note via Groq's Whisper endpoint.
+    Returns None on any failure (no Groq key configured, quota hit,
+    unreadable audio, etc.) -- callers treat that exactly like an incoming
+    message with nothing usable in it, rather than erroring out.
+    """
+    if not GROQ_API_KEY:
+        return None
+    try:
+        # WhatsApp voice notes are Opus-in-Ogg; a couple of other mimetypes
+        # are accepted too in case a client ever sends one differently.
+        # Whisper only looks at the filename's extension to sniff format,
+        # not the multipart Content-Type, so this has to actually match.
+        if "ogg" in mimetype:
+            ext = "ogg"
+        elif "mp4" in mimetype or "m4a" in mimetype:
+            ext = "m4a"
+        elif "wav" in mimetype:
+            ext = "wav"
+        else:
+            ext = "ogg"
+
+        with httpx.Client(timeout=30.0) as client:
+            res = client.post(
+                GROQ_TRANSCRIBE_URL,
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                files={"file": (f"voice.{ext}", audio_bytes, mimetype)},
+                data={"model": GROQ_WHISPER_MODEL, "response_format": "json"},
+            )
+            res.raise_for_status()
+            data = res.json()
+            return (data.get("text") or "").strip() or None
+    except Exception as exc:
+        print(f"[llm] Groq transcription failed: {exc}")
+        return None
 
 
 def generate(

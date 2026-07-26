@@ -3,10 +3,19 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class AudioPayload(BaseModel):
+    data: str  # base64-encoded raw bytes, straight off WhatsApp's media CDN
+    mimetype: str = "audio/ogg"
+
+
 class IncomingMessage(BaseModel):
     user_id: str
     from_jid: str = Field(alias="from")
-    text: str
+    text: str = ""
+    # Present only for a voice note WhatsApp gave no text for -- see
+    # main.py's /message handler, which transcribes it via Groq Whisper
+    # and treats the result exactly like typed text from then on.
+    audio: Optional[AudioPayload] = None
 
     model_config = {"populate_by_name": True}
 

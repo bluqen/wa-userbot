@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from fastapi import FastAPI
 
+from . import llm
 from .models import IncomingMessage, ReplyResponse, RewriteResponse
 from .plugin_base import MessageContext
 from .plugin_loader import build_plugins
@@ -56,20 +58,41 @@ async def exception_numbers(session_id: str):
 
 @app.post("/message", response_model=ReplyResponse)
 async def handle_message(msg: IncomingMessage):
-    print(f"[debug] incoming message from_jid={msg.from_jid!r} text={msg.text!r}")
-
     try:
         configs, history, sticker_tags = await fetch_session_context(msg.user_id, msg.from_jid)
     except Exception as exc:
         print(f"[session:{msg.user_id}] failed to fetch plugin config: {exc}")
         return ReplyResponse(reply=None)
 
+    text = msg.text
+    is_voice = False
+    # A voice note arrives with no text at all -- transcribe it via Groq
+    # Whisper and treat the result exactly like a typed message from here
+    # on, so every existing plugin (keyword autoreply, AI Reply, etc.)
+    # just works without knowing voice notes exist. Only bother if
+    # something is actually enabled to consume it -- transcription is a
+    # real API call, not worth making for a session with nothing that
+    # would ever act on the result.
+    if not text and msg.audio and llm.has_provider() and any(c.get("enabled") for c in configs):
+        try:
+            audio_bytes = base64.b64decode(msg.audio.data)
+            text = llm.transcribe_audio(audio_bytes, msg.audio.mimetype) or ""
+            is_voice = bool(text)
+        except Exception as exc:
+            print(f"[session:{msg.user_id}] voice note transcription failed: {exc}")
+
+    print(f"[debug] incoming message from_jid={msg.from_jid!r} text={text!r} voice={is_voice}")
+
+    if not text:
+        return ReplyResponse(reply=None)
+
     ctx = MessageContext(
         user_id=msg.user_id,
         from_jid=msg.from_jid,
-        text=msg.text,
+        text=text,
         history=history,
         sticker_tags=sticker_tags,
+        is_voice=is_voice,
     )
 
     # Record the incoming message regardless of whether anything replies to
@@ -79,7 +102,10 @@ async def handle_message(msg: IncomingMessage):
     # round trip to web's internal API for it -- save_message already
     # swallows its own errors, so a failed save here is silently logged,
     # same as before, just no longer serialized in front of the reply.
-    asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", msg.text))
+    # Uses the resolved `text` (the transcript, for a voice note) so future
+    # AI Reply context actually has something to work with instead of an
+    # empty turn.
+    asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", text))
 
     # Independent of any plugin's own cooldown setting: if this contact has
     # been sent an unusual number of auto-replies in the last minute, stop.

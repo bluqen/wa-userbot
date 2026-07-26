@@ -329,7 +329,14 @@ export async function startSession(userId, phoneNumber) {
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
         '';
-      if (!text) continue;
+
+      // A voice note (as opposed to a shared audio file, e.g. a song --
+      // WhatsApp tells the two apart via `ptt`, push-to-talk) has no text
+      // at all, but is still something worth answering. Only the incoming
+      // (non-fromMe) case matters here -- there's nothing sensible for
+      // ai_write to "fix" about a voice note the owner sent themself.
+      const isVoiceNote = msg.message.audioMessage?.ptt === true;
+      if (!text && !(isVoiceNote && !msg.key.fromMe)) continue;
 
       // The plugin engine only ever needs this to key config/exceptions and
       // chat history -- actual sends below still target msg.key.remoteJid
@@ -364,6 +371,22 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
+        let audio;
+        if (isVoiceNote) {
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            audio = {
+              data: buffer.toString('base64'),
+              mimetype: msg.message.audioMessage.mimetype || 'audio/ogg',
+            };
+          } catch (err) {
+            console.error(`[${userId}] failed to download voice note:`, err.message);
+          }
+        }
+        // A voice note whose download failed above still has empty text --
+        // forwardMessage/the plugin engine already treat that as nothing to
+        // reply to, same as any other message with nothing usable in it.
+
         const {
           reply,
           showTyping,
@@ -374,7 +397,7 @@ export async function startSession(userId, phoneNumber) {
           quote,
           parts,
           stickerTag,
-        } = await forwardMessage({ userId, from: resolvedFrom, text });
+        } = await forwardMessage({ userId, from: resolvedFrom, text, audio });
 
         if (reply) {
           // Waited once, before anything visible happens (typing indicator

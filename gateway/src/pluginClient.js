@@ -2,12 +2,20 @@ const PLUGIN_ENGINE_URL = process.env.PLUGIN_ENGINE_URL || 'http://localhost:800
 
 // Sends an incoming WhatsApp message to the Python plugin engine and
 // returns whatever reply it picked, plus optional typing-simulation
-// instructions (or null reply if no plugin matched).
-export async function forwardMessage({ userId, from, text }) {
+// instructions (or null reply if no plugin matched). `audio`, when given
+// (a voice note WhatsApp couldn't offer any text for), carries the raw
+// bytes as base64 -- the plugin engine transcribes it and treats the
+// result exactly like a typed message from then on.
+export async function forwardMessage({ userId, from, text, audio }) {
   const res = await fetch(`${PLUGIN_ENGINE_URL}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, from, text }),
+    body: JSON.stringify({ user_id: userId, from, text, audio }),
+    // A voice note means real transcription work on top of the usual
+    // plugin dispatch, so this can legitimately take longer than a plain
+    // text message -- bound it anyway so one slow/hung request can't stall
+    // this session's entire message loop indefinitely.
+    signal: AbortSignal.timeout(25000),
   });
 
   if (!res.ok) {

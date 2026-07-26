@@ -16,6 +16,11 @@ class MessageContext:
     # marker handling) -- fetched alongside plugin config/history in the
     # same round trip, not a separate call.
     sticker_tags: List[str] = field(default_factory=list)
+    # True if `text` is a Whisper transcription of an incoming voice note
+    # rather than something actually typed -- lets a plugin account for
+    # occasional transcription mistakes (see ai_reply.py) instead of
+    # treating a mis-heard word as a real typo.
+    is_voice: bool = False
 
 
 @dataclass

@@ -55,6 +55,7 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
       message: contextInfo.quotedMessage,
     };
     const buffer = await downloadMediaMessage(synthetic, 'buffer', {});
+    console.log(`[${userId}] downloaded sticker "${tag}": ${buffer.length} bytes`);
     await saveSticker({
       sessionId: userId,
       tag,

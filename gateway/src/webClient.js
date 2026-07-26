@@ -63,10 +63,16 @@ export async function completeScheduledTask(taskId) {
 // handleSaveStickerCommand) -- upserts by (sessionId, tag), so re-saving a
 // tag overwrites it.
 export async function saveSticker({ sessionId, tag, data, mimetype }) {
+  // The only call in this module with a real body (a base64-encoded image,
+  // sometimes a few hundred KB) instead of a small query -- large enough
+  // that a slow upload could hang past whatever Node's own default is.
+  // An explicit timeout turns that into a clear "timeout" error instead of
+  // an indefinite wait that eventually surfaces as a bare "fetch failed".
   const res = await fetch(`${WEB_APP_URL}/api/internal/stickers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
     body: JSON.stringify({ sessionId, tag, data, mimetype }),
+    signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
   return res.json();

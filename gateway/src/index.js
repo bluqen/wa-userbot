@@ -18,6 +18,19 @@ const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Every outbound call this gateway makes back to the web app (reconnect
+// watchdog, scheduler, stickers) depends on WEB_APP_URL/INTERNAL_API_SECRET
+// -- if either is missing or wrong on *this* service specifically, every one
+// of those calls fails identically with a bare "fetch failed" and nothing
+// upstream (AI Reply, pairing, admin dashboard) shows it, since none of
+// those go through this path. Logged once at boot so a misconfigured env
+// var here is visible immediately instead of only inferred from a string of
+// unexplained fetch failures later.
+console.log(
+  `WEB_APP_URL=${process.env.WEB_APP_URL || '(unset, defaulting to http://localhost:3000 -- will not work on Render)'}`,
+);
+console.log(`INTERNAL_API_SECRET is ${process.env.INTERNAL_API_SECRET ? 'set' : 'NOT SET'}`);
+
 app.post('/session/:userId/pair', async (req, res) => {
   const { userId } = req.params;
   const { phoneNumber } = req.body;

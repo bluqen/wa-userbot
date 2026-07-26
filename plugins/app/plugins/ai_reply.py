@@ -41,6 +41,23 @@ SPLIT_INSTRUCTIONS = (
 
 STICKER_MARKER_RE = re.compile(r"\[\[STICKER:([a-z0-9_-]+)\]\]", re.IGNORECASE)
 
+# Catches anything double-bracketed left over after BLOCK_MARKER,
+# STICKER_MARKER_RE, and SPLIT_MARKER have all already been stripped/
+# handled -- i.e. something that looks like one of our markers but isn't
+# one we actually recognize. Seen in practice: a model wrapping an
+# ordinary word in double brackets (e.g. "[[beautiful]]") as if it meant
+# something, most likely confusing itself over the several real [[...]]
+# conventions in its own prompt. Left alone, that leaks into the visible
+# message *and* gets saved to that contact's chat history, where the model
+# then imitates its own past habit on the next turn -- self-reinforcing
+# for that one conversation. Stripping it here, before it's ever saved,
+# stops the loop instead of just tolerating it.
+_STRAY_MARKER_RE = re.compile(r"\[\[[^\[\]]{1,40}\]\]")
+
+
+def _strip_stray_markers(value: str) -> str:
+    return _STRAY_MARKER_RE.sub("", value).strip()
+
 
 def _build_sticker_instructions(tags: List[str]) -> str:
     return (
@@ -309,6 +326,16 @@ class AIReplyPlugin(Plugin):
             text = " ".join(raw_parts)
             if style == "split" and len(raw_parts) >= 2:
                 parts = raw_parts[:2]
+
+        # See _STRAY_MARKER_RE above -- cleans up anything that still looks
+        # like a marker but wasn't one of the three actually recognized
+        # ones handled above, before it can leak into the message or (more
+        # importantly) get saved into this contact's chat history.
+        text = _strip_stray_markers(text)
+        if parts:
+            parts = [p for p in (_strip_stray_markers(part) for part in parts) if p]
+            if len(parts) < 2:
+                parts = None
 
         # Backstop for whenever the brevity instruction and the tighter
         # token budget above still weren't enough on their own -- applied

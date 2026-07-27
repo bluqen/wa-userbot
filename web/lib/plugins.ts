@@ -1,6 +1,6 @@
-export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write';
+export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write' | 'song';
 
-export const PLUGIN_KEYS: PluginKey[] = ['autoreply', 'ai_reply', 'ai_write'];
+export const PLUGIN_KEYS: PluginKey[] = ['autoreply', 'ai_reply', 'ai_write', 'song'];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string }> = {
   autoreply: {
@@ -15,6 +15,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string 
     name: 'AI Write',
     description:
       'Instantly fix spelling/grammar or rewrite the tone of your own outgoing messages before anyone reads the typos.',
+  },
+  song: {
+    name: 'Song Fetcher',
+    description:
+      'Sends a royalty-free (Creative Commons) track from Jamendo when someone messages "/song <genre/mood>". Requires JAMENDO_CLIENT_ID to be configured on the plugin engine.',
   },
 };
 
@@ -50,6 +55,9 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     applyInGroups: false,
     minLength: 4,
     cooldownMinutes: 0,
+  },
+  song: {
+    replyInGroups: false,
   },
 };
 

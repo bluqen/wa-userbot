@@ -397,6 +397,7 @@ export async function startSession(userId, phoneNumber) {
           quote,
           parts,
           stickerTag,
+          audio: replyAudio,
         } = await forwardMessage({ userId, from: resolvedFrom, text, audio });
 
         if (reply) {
@@ -460,6 +461,21 @@ export async function startSession(userId, phoneNumber) {
             }
           } catch (err) {
             console.error(`[${userId}] failed to send sticker "${stickerTag}":`, describeFetchError(err));
+          }
+        }
+
+        if (replyAudio) {
+          // A real audio/music file (see song.py) -- ptt:false so it
+          // renders as a normal playable attachment, not the voice-message
+          // bubble a ptt:true voice note gets.
+          try {
+            await sock.sendMessage(msg.key.remoteJid, {
+              audio: Buffer.from(replyAudio.data, 'base64'),
+              mimetype: replyAudio.mimetype || 'audio/mpeg',
+              ptt: false,
+            });
+          } catch (err) {
+            console.error(`[${userId}] failed to send audio reply:`, err.message);
           }
         }
 

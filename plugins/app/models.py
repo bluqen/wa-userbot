@@ -30,6 +30,10 @@ class ReplyResponse(BaseModel):
     quote: bool = False
     parts: Optional[List[str]] = None
     sticker_tag: Optional[str] = None
+    # A real audio/music file to send alongside `reply` -- see song.py.
+    # Reuses AudioPayload (same {data, mimetype} shape as the incoming
+    # voice-note case above) since the wire format is identical either way.
+    audio: Optional[AudioPayload] = None
 
 
 class RewriteResponse(BaseModel):

@@ -13,7 +13,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from fastapi import FastAPI
 
 from . import llm
-from .models import IncomingMessage, ReplyResponse, RewriteResponse
+from .models import AudioPayload, IncomingMessage, ReplyResponse, RewriteResponse
 from .plugin_base import MessageContext
 from .plugin_loader import build_plugins
 from .plugins.ai_write import AIWritePlugin
@@ -138,6 +138,9 @@ async def handle_message(msg: IncomingMessage):
                         quote=reply.quote,
                         parts=reply.parts,
                         sticker_tag=reply.sticker_tag,
+                        audio=AudioPayload(data=reply.audio.data, mimetype=reply.audio.mimetype)
+                        if reply.audio
+                        else None,
                     )
         except Exception as exc:  # a broken plugin shouldn't take the whole engine down
             print(f"[plugin:{plugin.name}] error: {exc}")

@@ -8,6 +8,7 @@ import AutoReplySettings, {
 } from '@/components/plugins/AutoReplySettings';
 import AIReplySettings, { type AIReplySettingsValue } from '@/components/plugins/AIReplySettings';
 import AIWriteSettings, { type AIWriteSettingsValue } from '@/components/plugins/AIWriteSettings';
+import SongSettings, { type SongSettingsValue } from '@/components/plugins/SongSettings';
 
 type PluginConfig = {
   key: string;
@@ -85,6 +86,12 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               {plugin.key === 'ai_write' && (
                 <AIWriteSettings
                   value={plugin.settings as AIWriteSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'song' && (
+                <SongSettings
+                  value={plugin.settings as SongSettingsValue}
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}

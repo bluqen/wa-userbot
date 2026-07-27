@@ -24,6 +24,18 @@ class MessageContext:
 
 
 @dataclass
+class AudioAttachment:
+    """A real audio/music file to send alongside a reply (see song.py) --
+    distinct from a voice note (ptt) both in how it's sent and in what it
+    means; this always renders as a normal playable file attachment, never
+    the voice-message bubble.
+    """
+
+    data: str  # base64-encoded raw bytes
+    mimetype: str = "audio/mpeg"
+
+
+@dataclass
 class Reply:
     # None means "nothing worth sending" -- used for a block-only reply,
     # where the only thing that happened is `block` below.
@@ -48,6 +60,8 @@ class Reply:
     parts: Optional[List[str]] = None
     # Tag of a saved sticker to send alongside `text` -- see ai_reply.py.
     sticker_tag: Optional[str] = None
+    # A real audio file to send alongside `text` -- see song.py.
+    audio: Optional[AudioAttachment] = None
 
 
 def resolve_settings(config: dict, from_jid: str) -> dict:

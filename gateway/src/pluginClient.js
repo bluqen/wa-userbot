@@ -11,11 +11,13 @@ export async function forwardMessage({ userId, from, text, audio }) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, from, text, audio }),
-    // A voice note means real transcription work on top of the usual
-    // plugin dispatch, so this can legitimately take longer than a plain
-    // text message -- bound it anyway so one slow/hung request can't stall
-    // this session's entire message loop indefinitely.
-    signal: AbortSignal.timeout(25000),
+    // A voice note means real transcription work, and a "/song" request
+    // (see song.py) means fetching and downloading a multi-MB file from
+    // Jamendo, both on top of the usual plugin dispatch -- either can
+    // legitimately take longer than a plain text message. Bound it anyway
+    // so one slow/hung request can't stall this session's entire message
+    // loop indefinitely.
+    signal: AbortSignal.timeout(45000),
   });
 
   if (!res.ok) {
@@ -33,6 +35,7 @@ export async function forwardMessage({ userId, from, text, audio }) {
     quote: Boolean(data.quote),
     parts: Array.isArray(data.parts) ? data.parts : null,
     stickerTag: data.sticker_tag || null,
+    audio: data.audio || null,
   };
 }
 

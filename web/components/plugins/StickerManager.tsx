@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import ConfirmModal from '@/components/ConfirmModal';
 
 type Sticker = {
+  id: string;
   tag: string;
   mimetype: string;
   data: string;
@@ -13,7 +14,7 @@ type Sticker = {
 export default function StickerManager({ sessionId }: { sessionId: string }) {
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [loading, setLoading] = useState(true);
-  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<Sticker | null>(null);
 
   const fetchStickers = useCallback(async () => {
     const res = await fetch(`/api/sessions/${sessionId}/stickers`);
@@ -28,9 +29,9 @@ export default function StickerManager({ sessionId }: { sessionId: string }) {
     fetchStickers();
   }, [fetchStickers]);
 
-  async function handleDelete(tag: string) {
+  async function handleDelete(stickerId: string) {
     setConfirmingDelete(null);
-    await fetch(`/api/sessions/${sessionId}/stickers/${encodeURIComponent(tag)}`, {
+    await fetch(`/api/sessions/${sessionId}/stickers/${encodeURIComponent(stickerId)}`, {
       method: 'DELETE',
     });
     fetchStickers();
@@ -52,7 +53,7 @@ export default function StickerManager({ sessionId }: { sessionId: string }) {
         <div className="flex flex-wrap gap-3">
           {stickers.map((s) => (
             <div
-              key={s.tag}
+              key={s.id}
               className="flex w-20 flex-col items-center gap-1 rounded-lg border border-surface-border bg-surface p-2"
             >
               <img
@@ -64,7 +65,7 @@ export default function StickerManager({ sessionId }: { sessionId: string }) {
                 {s.tag}
               </span>
               <button
-                onClick={() => setConfirmingDelete(s.tag)}
+                onClick={() => setConfirmingDelete(s)}
                 className="text-xs text-red-400 hover:text-red-300"
               >
                 Remove
@@ -77,9 +78,9 @@ export default function StickerManager({ sessionId }: { sessionId: string }) {
       {confirmingDelete && (
         <ConfirmModal
           title="Remove sticker"
-          message={`Remove the "${confirmingDelete}" sticker? This cannot be undone.`}
+          message={`Remove this "${confirmingDelete.tag}" sticker? This cannot be undone.`}
           confirmLabel="Remove"
-          onConfirm={() => handleDelete(confirmingDelete)}
+          onConfirm={() => handleDelete(confirmingDelete.id)}
           onCancel={() => setConfirmingDelete(null)}
         />
       )}

@@ -36,7 +36,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     where: { sessionId: params.id },
     select: { tag: true },
   });
-  const stickerTags = stickers.map((s) => s.tag);
+  // Multiple stickers can share a tag on purpose (see the Sticker model) --
+  // dedupe here so AI Reply's sticker instructions don't list the same tag
+  // more than once.
+  const stickerTags = [...new Set(stickers.map((s) => s.tag))];
 
   const { searchParams } = new URL(req.url);
   const contact = searchParams.get('contact');

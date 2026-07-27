@@ -18,6 +18,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   return NextResponse.json({
     stickers: stickers.map((s) => ({
+      id: s.id,
       tag: s.tag,
       mimetype: s.mimetype,
       data: s.data.toString('base64'),

@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 from .. import llm
 from ..personalities import get_personality_prompt
 from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+from ..stale_cache import maybe_sweep
 
 BASE_INSTRUCTIONS = (
     "You are chatting with someone over WhatsApp. Reply naturally and briefly "
@@ -69,7 +70,10 @@ def _build_sticker_instructions(tags: List[str]) -> str:
     )
 
 # (session_id, contact_jid) -> unix timestamp of the last AI reply sent.
+# Without a periodic sweep this grows by one entry for every contact ever
+# replied to, for the entire lifetime of this process -- see stale_cache.py.
 _last_replied: dict[Tuple[str, str], float] = {}
+_LAST_REPLIED_STALE_AFTER_SECONDS = 24 * 60 * 60
 
 
 def _compute_start_delay_ms(humanlikeness: int) -> int:
@@ -214,6 +218,8 @@ class AIReplyPlugin(Plugin):
             last = _last_replied.get((ctx.user_id, ctx.from_jid))
             if last and (time.time() - last) < cooldown_minutes * 60:
                 return False
+
+        maybe_sweep(_last_replied, lambda ts: time.time() - ts > _LAST_REPLIED_STALE_AFTER_SECONDS)
 
         return llm.has_provider()
 

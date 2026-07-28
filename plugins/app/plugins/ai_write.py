@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 
 from .. import llm
 from ..personalities import get_personality_prompt
+from ..stale_cache import maybe_sweep
 
 BASE_INSTRUCTIONS = (
     "You are an instant writing assistant for WhatsApp. The user is about to send the "
@@ -30,7 +31,10 @@ FIX_ERRORS_INSTRUCTION = (
 # owner's own messages in one chat can be throttled to reduce LLM call
 # volume (helps avoid the free-tier-provider 429s this project has hit in
 # practice), without changing behavior for anyone who hasn't opted in.
+# Periodically swept (see stale_cache.py) so it doesn't grow by one entry
+# per chat ever used, forever, for the lifetime of this process.
 _last_rewritten: dict[Tuple[str, str], float] = {}
+_LAST_REWRITTEN_STALE_AFTER_SECONDS = 24 * 60 * 60
 
 
 class AIWritePlugin:
@@ -58,6 +62,10 @@ class AIWritePlugin:
             last = _last_rewritten.get((session_id, chat_jid))
             if last and (time.time() - last) < cooldown_minutes * 60:
                 return False
+
+        maybe_sweep(
+            _last_rewritten, lambda ts: time.time() - ts > _LAST_REWRITTEN_STALE_AFTER_SECONDS
+        )
 
         return llm.has_provider()
 

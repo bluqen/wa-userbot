@@ -20,6 +20,13 @@ JAMENDO_SEARCH_URL = "https://api.jamendo.com/v3.0/tracks/"
 
 SONG_COMMAND = re.compile(r"^/song(?:\s+(.+))?$", re.IGNORECASE)
 
+# Same cap the gateway applies to WhatsApp media (see whatsappManager.js) --
+# an uncapped download here would fully buffer in memory (original bytes +
+# base64 + JSON serialization, roughly 3x the file size) with nothing
+# stopping an unusually long/high-bitrate track from spiking well past
+# this process's memory budget.
+MAX_TRACK_BYTES = 8 * 1024 * 1024
+
 
 class SongPlugin(Plugin):
     """Sends a Creative-Commons-licensed track from Jamendo's catalog when
@@ -128,7 +135,21 @@ def _search_track(query: str) -> Optional[dict]:
 
 
 def _download_track(url: str) -> bytes:
+    # Streamed (rather than client.get(url).content) so an oversized file
+    # aborts partway through instead of first buffering the whole thing
+    # just to throw it away a moment later.
     with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-        res = client.get(url)
-        res.raise_for_status()
-        return res.content
+        with client.stream("GET", url) as res:
+            res.raise_for_status()
+            content_length = res.headers.get("content-length")
+            if content_length and int(content_length) > MAX_TRACK_BYTES:
+                raise ValueError(f"track too large ({content_length} bytes, max {MAX_TRACK_BYTES})")
+
+            chunks = []
+            total = 0
+            for chunk in res.iter_bytes():
+                total += len(chunk)
+                if total > MAX_TRACK_BYTES:
+                    raise ValueError(f"track exceeded {MAX_TRACK_BYTES} bytes while downloading")
+                chunks.append(chunk)
+            return b"".join(chunks)

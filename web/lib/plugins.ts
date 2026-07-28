@@ -1,4 +1,4 @@
-export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write' | 'song' | 'anti_delete';
+export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write' | 'song' | 'anti_delete' | 'notes';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -6,31 +6,43 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'ai_write',
   'song',
   'anti_delete',
+  'notes',
 ];
 
-export const PLUGIN_META: Record<PluginKey, { name: string; description: string }> = {
+export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
   autoreply: {
     name: 'Auto Reply',
     description: 'Automatically reply to incoming messages with a fixed message.',
+    icon: '💬',
   },
   ai_reply: {
     name: 'AI Reply',
     description: 'Generate AI-powered replies in a personality of your choosing.',
+    icon: '🤖',
   },
   ai_write: {
     name: 'AI Write',
     description:
       'Instantly fix spelling/grammar or rewrite the tone of your own outgoing messages before anyone reads the typos.',
+    icon: '✍️',
   },
   song: {
     name: 'Song Fetcher',
     description:
       'Sends a royalty-free (Creative Commons) track from Jamendo when someone messages "/song <genre/mood>". Requires JAMENDO_CLIENT_ID to be configured on the plugin engine.',
+    icon: '🎵',
   },
   anti_delete: {
     name: 'Anti-Delete',
     description:
-      'When someone deletes a message for everyone, privately notifies you (in your own "Message Yourself" chat) with what it said -- never re-posted back into the original chat or group.',
+      'When someone deletes a message for everyone (text, image, video, voice note, sticker, or document), privately notifies you (in your own "Message Yourself" chat) with what it said -- never re-posted back into the original chat or group.',
+    icon: '🗑️',
+  },
+  notes: {
+    name: 'Notes',
+    description:
+      'Reply to any message -- text or media -- with "/savenote <name>" to save it, then drop it into any conversation later with "#name".',
+    icon: '📝',
   },
 };
 
@@ -73,6 +85,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   anti_delete: {
     includeGroups: true,
   },
+  notes: {},
 };
 
 export function isPluginKey(key: string): key is PluginKey {

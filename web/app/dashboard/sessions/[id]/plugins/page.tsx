@@ -12,11 +12,13 @@ import SongSettings, { type SongSettingsValue } from '@/components/plugins/SongS
 import AntiDeleteSettings, {
   type AntiDeleteSettingsValue,
 } from '@/components/plugins/AntiDeleteSettings';
+import NotesSettings from '@/components/plugins/NotesSettings';
 
 type PluginConfig = {
   key: string;
   name: string;
   description: string;
+  icon: string;
   enabled: boolean;
   settings: Record<string, unknown>;
 };
@@ -58,16 +60,18 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
 
       <h1 className="mt-4 text-xl font-semibold">Plugins</h1>
       <p className="mt-1 text-sm text-slate-400">
-        Configure how this WhatsApp session responds to messages.
+        Configure how this WhatsApp session responds to messages. Tap a tile to open its
+        settings.
       </p>
 
-      <div className="mt-6 space-y-4">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
         {loading ? (
-          <p className="text-sm text-slate-400">Loading...</p>
+          <p className="col-span-full text-sm text-slate-400">Loading...</p>
         ) : (
           plugins.map((plugin) => (
             <PluginCard
               key={plugin.key}
+              icon={plugin.icon}
               name={plugin.name}
               description={plugin.description}
               enabled={plugin.enabled}
@@ -104,6 +108,7 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}
+              {plugin.key === 'notes' && <NotesSettings sessionId={params.id} />}
             </PluginCard>
           ))
         )}

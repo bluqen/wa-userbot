@@ -32,6 +32,7 @@ model WaSession {
   messages    ChatMessage[]
   scheduledTasks ScheduledTask[]
   stickers    Sticker[]
+  notes       Note[]
 
   @@index([userId])
 }
@@ -113,4 +114,26 @@ model Sticker {
   createdAt DateTime @default(now())
 
   @@index([sessionId, tag])
+}
+
+// Quick-recall snippets: the account owner reply-quotes any message (text
+// or media -- image, video, voice note, sticker, document) with
+// "/savenote <name>", then drops it into any conversation later with
+// "#name" (see gateway/README.md). Unlike stickers, a note is meant to be
+// one canonical named snippet -- re-saving a name overwrites it rather
+// than adding a variant, so @@unique (not just an index) is right here.
+model Note {
+  id        String    @id @default(cuid())
+  sessionId String
+  session   WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  name      String
+  kind      String    // 'text' | 'media'
+  text      String    @default("") // the note text itself, or a media note's caption
+  data      Bytes?    // set only for kind = 'media'
+  mimetype  String?
+  mediaType String?   // Baileys message-type key (imageMessage/videoMessage/...), so it can be resent as the same kind of attachment
+  fileName  String?
+  createdAt DateTime  @default(now())
+
+  @@unique([sessionId, name])
 }

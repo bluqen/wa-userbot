@@ -1,6 +1,12 @@
-export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write' | 'song';
+export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write' | 'song' | 'anti_delete';
 
-export const PLUGIN_KEYS: PluginKey[] = ['autoreply', 'ai_reply', 'ai_write', 'song'];
+export const PLUGIN_KEYS: PluginKey[] = [
+  'autoreply',
+  'ai_reply',
+  'ai_write',
+  'song',
+  'anti_delete',
+];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string }> = {
   autoreply: {
@@ -20,6 +26,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string 
     name: 'Song Fetcher',
     description:
       'Sends a royalty-free (Creative Commons) track from Jamendo when someone messages "/song <genre/mood>". Requires JAMENDO_CLIENT_ID to be configured on the plugin engine.',
+  },
+  anti_delete: {
+    name: 'Anti-Delete',
+    description:
+      'When someone deletes a message for everyone, privately notifies you (in your own "Message Yourself" chat) with what it said -- never re-posted back into the original chat or group.',
   },
 };
 
@@ -58,6 +69,9 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   },
   song: {
     replyInGroups: false,
+  },
+  anti_delete: {
+    includeGroups: true,
   },
 };
 

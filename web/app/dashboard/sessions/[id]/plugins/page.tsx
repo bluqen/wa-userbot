@@ -9,6 +9,9 @@ import AutoReplySettings, {
 import AIReplySettings, { type AIReplySettingsValue } from '@/components/plugins/AIReplySettings';
 import AIWriteSettings, { type AIWriteSettingsValue } from '@/components/plugins/AIWriteSettings';
 import SongSettings, { type SongSettingsValue } from '@/components/plugins/SongSettings';
+import AntiDeleteSettings, {
+  type AntiDeleteSettingsValue,
+} from '@/components/plugins/AntiDeleteSettings';
 
 type PluginConfig = {
   key: string;
@@ -92,6 +95,12 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               {plugin.key === 'song' && (
                 <SongSettings
                   value={plugin.settings as SongSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'anti_delete' && (
+                <AntiDeleteSettings
+                  value={plugin.settings as AntiDeleteSettingsValue}
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}

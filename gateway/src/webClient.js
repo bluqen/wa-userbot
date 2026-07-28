@@ -98,3 +98,22 @@ export async function fetchSticker(sessionId, tag) {
   const data = await res.json();
   return Buffer.from(data.data, 'base64');
 }
+
+// Whether anti-delete is turned on for this session, and whether it
+// should also cover group chats -- reuses the existing plugins-list route
+// rather than a dedicated endpoint, since this is only ever checked right
+// when a delete-for-everyone actually happens (rare compared to every
+// message), not on some hot path that would make an extra route worth it.
+// Defaults to fully disabled on any error, same as every other
+// optional-feature gate in this codebase.
+export async function fetchAntiDeleteConfig(sessionId) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/sessions/${sessionId}/plugins`, {
+    headers: { 'x-internal-secret': INTERNAL_API_SECRET },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  const entry = (data.plugins || []).find((p) => p.key === 'anti_delete');
+  if (!entry || !entry.enabled) return { enabled: false, includeGroups: false };
+  return { enabled: true, includeGroups: entry.settings?.includeGroups !== false };
+}

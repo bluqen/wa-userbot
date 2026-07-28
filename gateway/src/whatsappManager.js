@@ -7,10 +7,17 @@ import {
   Browsers,
   jidNormalizedUser,
   downloadMediaMessage,
+  proto,
 } from '@whiskeysockets/baileys';
 import { usePostgresAuthState, hasStoredCreds, clearAuthState } from './postgresAuthState.js';
 import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers } from './pluginClient.js';
-import { createScheduledTask, saveSticker, fetchSticker, describeFetchError } from './webClient.js';
+import {
+  createScheduledTask,
+  saveSticker,
+  fetchSticker,
+  fetchAntiDeleteConfig,
+  describeFetchError,
+} from './webClient.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
 
@@ -189,6 +196,65 @@ export async function startSession(userId, phoneNumber) {
     }
   }
 
+  // Anti-delete: WhatsApp's "delete for everyone" doesn't actually
+  // un-deliver anything -- it arrives as a normal protocol message telling
+  // this client to stop showing an earlier message it already received.
+  // Briefly remembering recent text lets the account owner still be told
+  // what it said. Capped by count like the caches above; a size cap alone
+  // is enough since WhatsApp's own delete-for-everyone window is measured
+  // in hours, not a session's entire lifetime.
+  const recentMessages = new Map(); // message id -> { text, chatJid, isGroup }
+  const MAX_RECENT_MESSAGES = 1000;
+
+  function rememberMessage(id, entry) {
+    if (!id) return;
+    recentMessages.set(id, entry);
+    if (recentMessages.size > MAX_RECENT_MESSAGES) {
+      recentMessages.delete(recentMessages.keys().next().value);
+    }
+  }
+
+  // Sent privately to the account's own "Message Yourself" chat rather
+  // than back into the chat/group where the deletion happened -- gives the
+  // owner full visibility into what was deleted from their own
+  // conversations without the bot re-broadcasting someone else's retracted
+  // message to a group where it could cause real conflict.
+  async function handleMessageRevoke(userId, sock, msg, protocolMessage) {
+    const originalId = protocolMessage.key?.id;
+    if (!originalId) return;
+
+    const cached = recentMessages.get(originalId);
+    if (!cached) return; // never captured (e.g. media-only, or already evicted)
+
+    let config;
+    try {
+      config = await fetchAntiDeleteConfig(userId);
+    } catch (err) {
+      console.error(`[${userId}] anti-delete config check failed:`, describeFetchError(err));
+      return;
+    }
+    if (!config.enabled) return;
+    if (cached.isGroup && !config.includeGroups) return;
+
+    recentMessages.delete(originalId);
+
+    const deletedBy = msg.key.fromMe ? 'You' : (msg.key.participant || msg.key.remoteJid).split('@')[0];
+    // DM: deleter and chat are the same person, so naming both would just
+    // repeat the same number twice -- only groups need the extra line.
+    const contextLine = cached.isGroup ? `\nIn group: ${cached.chatJid.split('@')[0]}` : '';
+    const notice =
+      `\u{1F5D1}️ Deleted message recovered\n` +
+      `Deleted by: ${deletedBy}${contextLine}\n\n` +
+      `"${cached.text}"`;
+
+    try {
+      const sent = await sock.sendMessage(sock.user.id, { text: notice });
+      markAiSent(sent?.key?.id);
+    } catch (err) {
+      console.error(`[${userId}] failed to send anti-delete notice:`, err.message);
+    }
+  }
+
   // WhatsApp sometimes addresses a contact by an opaque "LID" (e.g.
   // `17206192644250@lid`) instead of their phone number in
   // `msg.key.remoteJid`. Per-contact plugin settings (exceptions) are keyed
@@ -325,10 +391,31 @@ export async function startSession(userId, phoneNumber) {
     for (const msg of messages) {
       if (!msg.message) continue;
 
+      // "Delete for everyone" arrives as a normal message: a protocolMessage
+      // telling this client to stop showing an earlier message by id, not
+      // an actual un-delivery of anything -- the content already arrived
+      // and (if it had text) is sitting in recentMessages below. Handled
+      // before the text-extraction/filtering logic further down since a
+      // protocolMessage carries no text of its own and would otherwise
+      // just get silently skipped by it.
+      const protocolMessage = msg.message.protocolMessage;
+      if (protocolMessage?.type === proto.Message.ProtocolMessage.Type.REVOKE) {
+        await handleMessageRevoke(userId, sock, msg, protocolMessage);
+        continue;
+      }
+
       const text =
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
         '';
+
+      if (text) {
+        rememberMessage(msg.key.id, {
+          text,
+          chatJid: msg.key.remoteJid,
+          isGroup: msg.key.remoteJid.endsWith('@g.us'),
+        });
+      }
 
       // A voice note (as opposed to a shared audio file, e.g. a song --
       // WhatsApp tells the two apart via `ptt`, push-to-talk) has no text

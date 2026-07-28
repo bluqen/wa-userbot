@@ -15,11 +15,80 @@ import {
   createScheduledTask,
   saveSticker,
   fetchSticker,
-  fetchAntiDeleteConfig,
+  fetchSessionPluginConfigs,
+  saveNote,
+  fetchNote,
   describeFetchError,
 } from './webClient.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
+const SAVE_NOTE_COMMAND = /^\/savenote\s+(\S+)/i;
+const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
+
+// Shared by anti-delete's eager media caching, "/savenote", and voice-note
+// transcription -- one place that knows how to detect and download
+// whatever media type a message contains, instead of each feature quietly
+// re-downloading the same file (a voice note, in particular, would
+// otherwise get downloaded twice: once for anti-delete, once to transcribe).
+const MEDIA_MESSAGE_TYPES = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'];
+const MAX_MEDIA_DOWNLOAD_BYTES = 8 * 1024 * 1024; // covers virtually all images/voice notes/short videos/documents
+
+function detectMediaType(messageContent) {
+  return MEDIA_MESSAGE_TYPES.find((t) => messageContent[t]);
+}
+
+// Returns null (rather than throwing) for "too large to bother with" so
+// callers can treat that exactly like "nothing worth capturing" instead of
+// needing their own size-check branch.
+async function downloadAnyMedia(msg, mediaType, mediaObj) {
+  const fileLength = Number(mediaObj.fileLength) || 0;
+  if (fileLength > MAX_MEDIA_DOWNLOAD_BYTES) return null;
+
+  const buffer = await downloadMediaMessage(msg, 'buffer', {});
+  return {
+    mediaType,
+    buffer,
+    mimetype: mediaObj.mimetype || undefined,
+    caption: mediaObj.caption || '',
+    fileName: mediaObj.fileName || undefined,
+    ptt: mediaType === 'audioMessage' ? !!mediaObj.ptt : undefined,
+  };
+}
+
+// Maps a cached/saved media entry back into the Baileys sendMessage content
+// shape needed to actually resend it (anti-delete recovery, note recall).
+function buildOutgoingMediaContent({ mediaType, buffer, mimetype, caption, fileName, ptt }) {
+  switch (mediaType) {
+    case 'imageMessage':
+      return { image: buffer, mimetype, caption: caption || undefined };
+    case 'videoMessage':
+      return { video: buffer, mimetype, caption: caption || undefined };
+    case 'audioMessage':
+      return { audio: buffer, mimetype, ptt: !!ptt };
+    case 'stickerMessage':
+      return { sticker: buffer };
+    case 'documentMessage':
+      return { document: buffer, mimetype, fileName: fileName || 'file' };
+    default:
+      return null;
+  }
+}
+
+// Both anti-delete and notes are gateway-only features -- no Python
+// plugin-engine involvement at all -- so nothing else ever fetches their
+// settings. Derived from the same shared, TTL-cached plugins list (see
+// refreshPluginConfigs inside startSession) rather than each doing its own
+// network round trip.
+function deriveAntiDeleteConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'anti_delete');
+  if (!entry || !entry.enabled) return { enabled: false, includeGroups: false };
+  return { enabled: true, includeGroups: entry.settings?.includeGroups !== false };
+}
+
+function deriveNotesConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'notes');
+  return { enabled: !!(entry && entry.enabled) };
+}
 
 // Lets the account owner teach the bot a sticker by quote-replying to an
 // existing sticker message with "/savesticker <tag>" -- see
@@ -78,6 +147,126 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
       { text: `Failed to save sticker: ${detail}`, edit: msg.key },
     );
   }
+}
+
+// Lets the account owner save a quick-recall snippet by quote-replying to
+// *any* message -- text or media, whatever it was -- with
+// "/savenote <name>", then drop it into any conversation later with
+// "#name" (see handleNoteRecall below). Same feedback idiom as
+// /savesticker: edits the command message itself in place.
+async function handleSaveNoteCommand(userId, sock, msg, rawName) {
+  const name = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  const quoted = contextInfo?.quotedMessage;
+
+  if (!name) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: 'Usage: /savenote <name> (reply to any message)', edit: msg.key },
+    );
+    return;
+  }
+  if (!quoted) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `Reply directly to a message with /savenote ${name}`, edit: msg.key },
+    );
+    return;
+  }
+
+  const quotedText = quoted.conversation || quoted.extendedTextMessage?.text || '';
+  const mediaType = detectMediaType(quoted);
+
+  try {
+    if (mediaType) {
+      // Same synthetic-wrapper trick as /savesticker -- a quoted message
+      // isn't a real top-level message in this payload, but
+      // downloadMediaMessage only needs something shaped like one.
+      const synthetic = {
+        key: {
+          remoteJid: contextInfo.remoteJid || msg.key.remoteJid,
+          id: contextInfo.stanzaId,
+          fromMe: false,
+        },
+        message: quoted,
+      };
+      const media = await downloadAnyMedia(synthetic, mediaType, quoted[mediaType]);
+      if (!media) {
+        await sock.sendMessage(
+          msg.key.remoteJid,
+          { text: 'That file is too large to save as a note (max 8MB).', edit: msg.key },
+        );
+        return;
+      }
+      await saveNote({
+        sessionId: userId,
+        name,
+        kind: 'media',
+        text: media.caption || '',
+        data: media.buffer.toString('base64'),
+        mimetype: media.mimetype,
+        mediaType: media.mediaType,
+        fileName: media.fileName,
+      });
+    } else if (quotedText) {
+      await saveNote({ sessionId: userId, name, kind: 'text', text: quotedText });
+    } else {
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: 'Nothing to save from that message.', edit: msg.key },
+      );
+      return;
+    }
+    await sock.sendMessage(msg.key.remoteJid, { text: `Saved note "${name}"`, edit: msg.key });
+  } catch (err) {
+    const detail = describeFetchError(err);
+    console.error(`[${userId}] failed to save note "${name}":`, detail);
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `Failed to save note: ${detail}`, edit: msg.key },
+    );
+  }
+}
+
+// Recalls a saved note by "#name" into whichever chat it was typed in.
+// Returns true if a note was found and sent (caller treats the message as
+// fully handled), false if nothing matched (caller falls through to
+// normal processing, e.g. ai_write -- not every "#word" someone types is
+// meant as a note reference). `markAiSent` is passed in rather than
+// closed over since it's a per-session function (see startSession) and
+// this helper, like the others above, is defined once at module scope.
+async function handleNoteRecall(userId, sock, msg, name, markAiSent) {
+  let note;
+  try {
+    note = await fetchNote(userId, name.toLowerCase());
+  } catch (err) {
+    console.error(`[${userId}] note recall lookup failed for "${name}":`, describeFetchError(err));
+    return false;
+  }
+  if (!note) return false;
+
+  try {
+    if (note.kind === 'media' && note.data) {
+      const content = buildOutgoingMediaContent({
+        mediaType: note.mediaType,
+        buffer: Buffer.from(note.data, 'base64'),
+        mimetype: note.mimetype,
+        caption: note.text,
+        fileName: note.fileName,
+        ptt: false,
+      });
+      if (content) {
+        const sent = await sock.sendMessage(msg.key.remoteJid, content);
+        markAiSent(sent?.key?.id);
+      }
+    } else {
+      const sent = await sock.sendMessage(msg.key.remoteJid, { text: note.text });
+      markAiSent(sent?.key?.id);
+    }
+  } catch (err) {
+    console.error(`[${userId}] failed to send recalled note "${name}":`, err.message);
+  }
+  return true;
 }
 
 const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' });
@@ -196,21 +385,60 @@ export async function startSession(userId, phoneNumber) {
     }
   }
 
+  // Both anti-delete and notes need to know their own settings, but
+  // neither is worth a fresh network round trip on every single message --
+  // anti-delete's check only matters at the (rare) moment of a deletion,
+  // and notes' "#name" recall is one substring check away regardless.
+  // TTL-cached instead: at most one fetch per session per minute, covering
+  // both features' settings from the one shared plugins-list route.
+  let cachedPluginConfigs = [];
+  let cachedPluginConfigsFetchedAt = 0;
+  const PLUGIN_CONFIG_TTL_MS = 60 * 1000;
+
+  async function refreshPluginConfigs() {
+    if (Date.now() - cachedPluginConfigsFetchedAt < PLUGIN_CONFIG_TTL_MS) {
+      return cachedPluginConfigs;
+    }
+    try {
+      cachedPluginConfigs = await fetchSessionPluginConfigs(userId);
+      cachedPluginConfigsFetchedAt = Date.now();
+    } catch (err) {
+      console.error(`[${userId}] plugin config refresh failed:`, describeFetchError(err));
+      // Keep whatever was last known (or the empty default) rather than
+      // treating a transient network blip as "everything just turned off".
+    }
+    return cachedPluginConfigs;
+  }
+
   // Anti-delete: WhatsApp's "delete for everyone" doesn't actually
   // un-deliver anything -- it arrives as a normal protocol message telling
   // this client to stop showing an earlier message it already received.
-  // Briefly remembering recent text lets the account owner still be told
-  // what it said. Capped by count like the caches above; a size cap alone
-  // is enough since WhatsApp's own delete-for-everyone window is measured
-  // in hours, not a session's entire lifetime.
-  const recentMessages = new Map(); // message id -> { text, chatJid, isGroup }
-  const MAX_RECENT_MESSAGES = 1000;
+  // Briefly remembering recent messages (text AND media -- an image,
+  // video, voice note, sticker, or document, whatever it was) lets the
+  // account owner still be told what it was. Bounded by both a count cap
+  // and a total-byte-size cap, since media entries vary from a few bytes
+  // of text up to megabytes, unlike every other per-session cache in this
+  // file which only ever holds small fixed-size entries.
+  const recentMessages = new Map(); // message id -> cache entry (see below)
+  const MAX_RECENT_COUNT = 2000;
+  const MAX_RECENT_BYTES = 50 * 1024 * 1024;
+  let recentMessagesBytes = 0;
+
+  function entrySize(entry) {
+    return entry.buffer ? entry.buffer.length : entry.text ? entry.text.length : 0;
+  }
 
   function rememberMessage(id, entry) {
     if (!id) return;
     recentMessages.set(id, entry);
-    if (recentMessages.size > MAX_RECENT_MESSAGES) {
-      recentMessages.delete(recentMessages.keys().next().value);
+    recentMessagesBytes += entrySize(entry);
+    while (
+      (recentMessages.size > MAX_RECENT_COUNT || recentMessagesBytes > MAX_RECENT_BYTES) &&
+      recentMessages.size > 0
+    ) {
+      const oldestKey = recentMessages.keys().next().value;
+      recentMessagesBytes -= entrySize(recentMessages.get(oldestKey));
+      recentMessages.delete(oldestKey);
     }
   }
 
@@ -224,32 +452,35 @@ export async function startSession(userId, phoneNumber) {
     if (!originalId) return;
 
     const cached = recentMessages.get(originalId);
-    if (!cached) return; // never captured (e.g. media-only, or already evicted)
+    if (!cached) return; // never captured (e.g. too large, or already evicted)
 
-    let config;
-    try {
-      config = await fetchAntiDeleteConfig(userId);
-    } catch (err) {
-      console.error(`[${userId}] anti-delete config check failed:`, describeFetchError(err));
-      return;
-    }
+    const config = deriveAntiDeleteConfig(await refreshPluginConfigs());
     if (!config.enabled) return;
     if (cached.isGroup && !config.includeGroups) return;
 
+    recentMessagesBytes -= entrySize(cached);
     recentMessages.delete(originalId);
 
     const deletedBy = msg.key.fromMe ? 'You' : (msg.key.participant || msg.key.remoteJid).split('@')[0];
     // DM: deleter and chat are the same person, so naming both would just
     // repeat the same number twice -- only groups need the extra line.
     const contextLine = cached.isGroup ? `\nIn group: ${cached.chatJid.split('@')[0]}` : '';
-    const notice =
-      `\u{1F5D1}️ Deleted message recovered\n` +
-      `Deleted by: ${deletedBy}${contextLine}\n\n` +
-      `"${cached.text}"`;
+    const header = `\u{1F5D1}️ Deleted message recovered\nDeleted by: ${deletedBy}${contextLine}`;
 
     try {
-      const sent = await sock.sendMessage(sock.user.id, { text: notice });
-      markAiSent(sent?.key?.id);
+      if (cached.kind === 'media') {
+        const captionLine = cached.caption ? `\n\nCaption: "${cached.caption}"` : '';
+        const sentHeader = await sock.sendMessage(sock.user.id, { text: `${header}${captionLine}` });
+        markAiSent(sentHeader?.key?.id);
+        const content = buildOutgoingMediaContent(cached);
+        if (content) {
+          const sentMedia = await sock.sendMessage(sock.user.id, content);
+          markAiSent(sentMedia?.key?.id);
+        }
+      } else {
+        const sent = await sock.sendMessage(sock.user.id, { text: `${header}\n\n"${cached.text}"` });
+        markAiSent(sent?.key?.id);
+      }
     } catch (err) {
       console.error(`[${userId}] failed to send anti-delete notice:`, err.message);
     }
@@ -409,12 +640,39 @@ export async function startSession(userId, phoneNumber) {
         msg.message.extendedTextMessage?.text ||
         '';
 
-      if (text) {
-        rememberMessage(msg.key.id, {
-          text,
-          chatJid: msg.key.remoteJid,
-          isGroup: msg.key.remoteJid.endsWith('@g.us'),
-        });
+      const isGroupChat = msg.key.remoteJid.endsWith('@g.us');
+
+      // Anti-delete caching -- text is essentially free to remember, but
+      // media costs a real download, so only bother when the feature is
+      // actually on for this session (and, for a group chat, only when
+      // group coverage is too). `cachedMedia` is reused just below for
+      // voice-note transcription so a ptt voice note doesn't get
+      // downloaded twice over -- once here, once for transcription.
+      let cachedMedia = null;
+      const antiDelete = deriveAntiDeleteConfig(await refreshPluginConfigs());
+      const antiDeleteApplies = antiDelete.enabled && (!isGroupChat || antiDelete.includeGroups);
+
+      if (antiDeleteApplies) {
+        if (text) {
+          rememberMessage(msg.key.id, { kind: 'text', text, chatJid: msg.key.remoteJid, isGroup: isGroupChat });
+        } else {
+          const mediaType = detectMediaType(msg.message);
+          if (mediaType) {
+            try {
+              cachedMedia = await downloadAnyMedia(msg, mediaType, msg.message[mediaType]);
+              if (cachedMedia) {
+                rememberMessage(msg.key.id, {
+                  kind: 'media',
+                  ...cachedMedia,
+                  chatJid: msg.key.remoteJid,
+                  isGroup: isGroupChat,
+                });
+              }
+            } catch (err) {
+              console.error(`[${userId}] anti-delete media capture failed:`, err.message);
+            }
+          }
+        }
       }
 
       // A voice note (as opposed to a shared audio file, e.g. a song --
@@ -442,6 +700,28 @@ export async function startSession(userId, phoneNumber) {
           continue;
         }
 
+        const saveNoteMatch = text.match(SAVE_NOTE_COMMAND);
+        if (saveNoteMatch) {
+          const notes = deriveNotesConfig(await refreshPluginConfigs());
+          if (notes.enabled) {
+            await handleSaveNoteCommand(userId, sock, msg, saveNoteMatch[1]);
+            continue;
+          }
+        }
+
+        // A bare "#name" anywhere in an owner-sent message recalls a saved
+        // note into this same chat -- but only if it actually matches one;
+        // otherwise this falls through to ai_write below like normal, since
+        // not every "#word" someone types is meant as a note reference.
+        const noteRecallMatch = text.match(NOTE_RECALL_RE);
+        if (noteRecallMatch) {
+          const notes = deriveNotesConfig(await refreshPluginConfigs());
+          if (notes.enabled) {
+            const handled = await handleNoteRecall(userId, sock, msg, noteRecallMatch[1], markAiSent);
+            if (handled) continue;
+          }
+        }
+
         // A message the userbot owner sent themself (from this device or
         // any other linked device) -- offer it to ai_write for an instant
         // edit. Everything else below is about replying to messages from
@@ -461,7 +741,13 @@ export async function startSession(userId, phoneNumber) {
         let audio;
         if (isVoiceNote) {
           try {
-            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            // Reuse the buffer anti-delete may have already downloaded
+            // above for this exact message instead of downloading it a
+            // second time.
+            const buffer =
+              cachedMedia?.mediaType === 'audioMessage'
+                ? cachedMedia.buffer
+                : await downloadMediaMessage(msg, 'buffer', {});
             audio = {
               data: buffer.toString('base64'),
               mimetype: msg.message.audioMessage.mimetype || 'audio/ogg',

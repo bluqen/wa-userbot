@@ -99,21 +99,47 @@ export async function fetchSticker(sessionId, tag) {
   return Buffer.from(data.data, 'base64');
 }
 
-// Whether anti-delete is turned on for this session, and whether it
-// should also cover group chats -- reuses the existing plugins-list route
-// rather than a dedicated endpoint, since this is only ever checked right
-// when a delete-for-everyone actually happens (rare compared to every
-// message), not on some hot path that would make an extra route worth it.
-// Defaults to fully disabled on any error, same as every other
-// optional-feature gate in this codebase.
-export async function fetchAntiDeleteConfig(sessionId) {
+// Raw enabled-plugin configs for a session -- used by gateway-only features
+// (anti-delete, notes) that have no Python plugin-engine involvement at
+// all, so there's nowhere else that would ever fetch this for them. See
+// whatsappManager.js's refreshPluginConfigs, which TTL-caches this per
+// session rather than hitting it on every single message.
+export async function fetchSessionPluginConfigs(sessionId) {
   const res = await fetch(`${WEB_APP_URL}/api/internal/sessions/${sessionId}/plugins`, {
     headers: { 'x-internal-secret': INTERNAL_API_SECRET },
     signal: AbortSignal.timeout(10000),
   });
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
   const data = await res.json();
-  const entry = (data.plugins || []).find((p) => p.key === 'anti_delete');
-  if (!entry || !entry.enabled) return { enabled: false, includeGroups: false };
-  return { enabled: true, includeGroups: entry.settings?.includeGroups !== false };
+  return data.plugins || [];
+}
+
+// Teaches the bot a note via "/savenote <name>" (see whatsappManager.js) --
+// upserts by (sessionId, name), so re-saving a name overwrites it (unlike
+// stickers, a note is meant to be one canonical named snippet, not a pool
+// of random variants).
+export async function saveNote({ sessionId, name, kind, text, data, mimetype, mediaType, fileName }) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
+    body: JSON.stringify({ sessionId, name, kind, text, data, mimetype, mediaType, fileName }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  return res.json();
+}
+
+// Fetches one saved note by name, right before recalling it via "#name".
+// Returns null on a 404 -- the note may have been deleted since.
+export async function fetchNote(sessionId, name) {
+  const res = await fetch(
+    `${WEB_APP_URL}/api/internal/notes/${encodeURIComponent(sessionId)}/${encodeURIComponent(name)}`,
+    {
+      headers: { 'x-internal-secret': INTERNAL_API_SECRET },
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  return res.json();
 }

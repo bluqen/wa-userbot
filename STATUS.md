@@ -52,16 +52,35 @@ that corruption).
   socket(s). WhatsApp session credentials are stored in Postgres (not local
   files), so they survive the gateway process/disk being thrown away and
   restarted -- verified working, including across a real Render redeploy.
-- **Plugin engine** (`plugins/`) -- Python + FastAPI, three plugins:
+- **Plugin engine** (`plugins/`) -- Python + FastAPI, six plugins:
   - **Auto Reply** -- fixed message, group/cooldown controls, per-contact
     exceptions.
-  - **AI Reply** -- LLM-generated replies (Groq, falls back to Gemini),
-    100 selectable personalities + custom prompt, per-chat memory (last N
-    messages), per-contact exceptions (different personality or excluded
-    entirely per contact).
+  - **AI Reply** -- LLM-generated replies (Groq with a multi-model
+    fallback list, then Gemini), 100 selectable personalities + custom
+    prompt, per-chat memory (last N messages), per-contact exceptions,
+    knowledge-base grounding, opt-in AI-triggered blocking, a
+    **humanlikeness** slider (named checkpoints: Off/Subtle/Natural/
+    Expressive/Maximum) controlling randomized reply delay, swipe-reply
+    vs. message-splitting style, a reply-length cap + brevity prompting at
+    higher settings, and typing-indicator duration that scales with the
+    reply's actual length. Also understands **voice notes** (transcribed
+    via Groq Whisper, then treated exactly like typed text) and can send a
+    **saved sticker** alongside a reply.
   - **AI Write** -- instantly edits the userbot owner's *own* outgoing
     messages (fix typos/grammar, or rewrite tone/translate) via WhatsApp's
-    native edit-message feature.
+    native edit-message feature. Has its own opt-in cooldown to cut LLM
+    call volume.
+  - **Song Fetcher** -- `/song <genre, mood, or artist>` sends back a
+    Creative-Commons-licensed track from Jamendo's catalog (independent
+    music, not mainstream releases) with artist/license attribution.
+    Requires `JAMENDO_CLIENT_ID` (free signup) on the plugin engine.
+  - **Anti-Delete** -- gateway-only (no Python involvement); privately
+    tells the owner what a deleted message said, for *any* media type
+    (text, image, video, audio, sticker, document), in their own "Message
+    Yourself" chat rather than back into the original chat/group.
+  - **Notes** -- gateway-only; owner reply-quotes any message (text or
+    media) with `/savenote <name>` to save it, then recalls it into any
+    chat later with `#name`.
 - **Admin panel** (`/dashboard/admin`, `web/`) -- restricted to emails listed
   in `ADMIN_EMAILS` (comma-separated env var; redeploy needed to change).
   Two sections:
@@ -211,6 +230,24 @@ that corruption).
   socket-table entries) -- `netstat -ano` plus `taskkill //F //PID <real
   pid> //T` is the reliable way to find and kill whatever's actually bound
   to a port when a graceful restart doesn't free it.
+- **Any per-(session, contact) tracking dict needs a cleanup story from
+  day one** -- three separate ones (`rate_limiter.py`, `ai_reply.py`,
+  `ai_write.py`) grew forever until fixed this session (see "Plugin engine
+  memory leak fixed" above). If you add another one, use
+  `plugins/app/stale_cache.py`'s `maybe_sweep()` from the start rather
+  than bolting cleanup on later.
+- **Detecting a WhatsApp "delete for everyone"** isn't a dedicated Baileys
+  event -- it arrives as a normal message whose
+  `message.protocolMessage.type` equals `proto.Message.ProtocolMessage.Type.REVOKE`
+  (`proto` is a named export of `@whiskeysockets/baileys`), with
+  `protocolMessage.key.id` pointing at the *original* message's id. Only
+  useful if you already cached that original message's content before the
+  revoke arrived -- see anti-delete above.
+- **Any feature that downloads a file into memory needs an explicit size
+  cap** -- discovered the hard way when the plugin engine started OOMing;
+  `song.py`'s Jamendo download had none. 8MB is the cap used both there
+  and for WhatsApp media in the gateway (anti-delete, notes,
+  `/savesticker`) -- match it if you add another media-handling path.
 
 ## Quick health check for a fresh session
 
@@ -282,6 +319,90 @@ for the *specific* error, not just "down").
   survives a gateway restart, same reasoning as the startup-reconnect fix
   above. No new env vars needed -- reuses `WEB_APP_URL`/
   `INTERNAL_API_SECRET` already added for that fix.
+- **Humanlikeness slider for AI Reply** -- named checkpoints (Off/Subtle/
+  Natural/Expressive/Maximum, backed by a plain 0-100 setting) controlling:
+  randomized reply delay, a `quote`/`split`/`plain` style roll per reply
+  (`split` is requested from the LLM directly via a `[[SPLIT]]` marker,
+  not inferred after the fact -- inferring it from whether the generated
+  text happened to have 2+ sentences barely ever triggered once brevity
+  prompting was added), a reply-length cap + brevity prompting at higher
+  settings, typing-indicator duration that scales with the reply's actual
+  length, and a delay before reacting *at all* (not just before showing
+  the typing indicator) so a reply doesn't fire the instant a message
+  arrives even with the indicator off.
+- **Multi-model Groq fallback** -- tries `GROQ_MODEL`, then each of
+  `GROQ_FALLBACK_MODELS` (env var, comma-separated) before falling back to
+  Gemini. Groq's rate limits are per-model, not account-wide, so a
+  different model can still have headroom when the primary one is capped.
+- **Sticker system** -- `/savesticker <tag>` (reply-quote a sticker
+  message) teaches the bot a sticker; AI Reply can send one back via a
+  `[[STICKER:tag]]` marker (opt-in `useSticker` + `stickerChance` slider).
+  Multiple stickers can share the same tag on purpose -- re-saving a tag
+  adds another one instead of overwriting, and a random match is picked
+  at send time, so a tag like "happy" can point to several different
+  stickers. Dashboard lets the owner view/delete individual stickers.
+- **Voice note transcription** -- a voice note (not a shared audio
+  file/song -- WhatsApp tells the two apart via `ptt`) gets transcribed
+  via Groq Whisper (reusing `GROQ_API_KEY`, no new credential) and treated
+  exactly like typed text from then on, so every existing plugin just
+  works on it. Only transcribes if the session actually has something
+  enabled to act on the result. AI Reply gets a light heads-up when
+  working from a transcript so it doesn't overreact to an occasional
+  mis-heard word.
+- **Song Fetcher plugin** -- `/song <genre, mood, or artist>` searches
+  Jamendo's Creative-Commons catalog (built for exactly this kind of
+  third-party redistribution, unlike ripping YouTube/Spotify) and sends
+  back a track with artist/license attribution. Requires
+  `JAMENDO_CLIENT_ID` (free signup) on the plugin engine; silently no-ops
+  if unset. Deliberately not a "get any song" tool -- only finds
+  independent/CC-licensed music, not mainstream releases.
+- **Anti-Delete plugin** -- gateway-only (no Python plugin engine
+  involvement at all). WhatsApp's "delete for everyone" doesn't actually
+  un-deliver anything -- it arrives as a normal protocol message telling
+  the client to stop showing an earlier message it already received.
+  Caches recent messages (text *and* every media type -- image, video,
+  audio, sticker, document, bounded by both a count and a total-byte-size
+  cap) and, on a detected deletion, privately tells the owner what it was
+  in their own "Message Yourself" chat -- deliberately **not** re-posted
+  back into the original chat or group, so the bot never amplifies
+  someone else's retracted message into a conflict. Off by default, with
+  a separate toggle for whether it covers group chats.
+- **Notes system** -- gateway-only. Owner reply-quotes any message (text
+  or media -- image/video/audio/sticker/document) with `/savenote <name>`
+  to save it (overwrites if the name's reused), then drops it into any
+  chat later by typing `#name`. Both commands are owner-only (`fromMe`),
+  same as `/savesticker`.
+- **Plugins page redesigned as an icon grid** -- mod-menu style (each
+  plugin gets a big emoji icon + name + enable toggle in a responsive
+  grid); clicking a tile opens its settings in a modal instead of the old
+  inline-expanding list.
+- **Mobile-responsive + visual polish pass on the web dashboard** -- the
+  header now collapses into a hamburger menu below the `sm` breakpoint
+  (verified in-browser at 375px: no horizontal overflow anywhere), several
+  rows that would have overflowed on narrow screens got fixed, modals gained
+  a max-height + scroll for small viewports with an open keyboard, plus a
+  subtle background glow and themed scrollbars.
+- **Gateway crash resilience** -- a Baileys internal error (uncaught, from
+  deep inside its own retry/relay handling) was crashing the *entire*
+  gateway process, disconnecting every paired session on that shard at
+  once instead of just the one that broke. Top-level
+  `unhandledRejection`/`uncaughtException` handlers now log and keep the
+  process running instead.
+- **Timeouts added to every gateway<->web HTTP call** -- none of them had
+  one before; a hung request (e.g. during a cold-start or transient
+  network blip) could otherwise hang indefinitely, silently stalling
+  everything from the sessions dashboard's status refresh to a sticker
+  send, with no visible error. Errors now also route through a shared
+  `describeFetchError()` helper so the *actual* cause (not just Node's
+  generic "fetch failed") shows up in logs.
+- **Plugin engine memory leak fixed** -- three module-level dicts
+  (`rate_limiter.py`, `ai_reply.py`, `ai_write.py`), each keyed on
+  `(session_id, contact_jid)`, never removed an entry once created --
+  every distinct contact who ever messaged any session left a permanent
+  entry for the process's lifetime, eventually exhausting the free tier's
+  512MB. Fixed with a shared probabilistic sweep (`stale_cache.py`).
+  `song.py`'s Jamendo download also got an 8MB streaming cap (previously
+  unbounded) to stop an oversized track from spiking memory.
 
 ## Nothing currently in progress
 
@@ -289,4 +410,21 @@ Everything above and in earlier versions of this file (LID matching, the
 Bad MAC duplicate-session issue, hosting deployment) is resolved and
 verified live, both locally and on Render -- **except the startup-
 reconnect env vars still need adding to the deployed gateway service**
-(see above). Next steps are whatever the project owner wants next.
+(see above, if not already done). A few things worth checking on the
+deployed services specifically:
+
+- **`JAMENDO_CLIENT_ID`** needs setting on the plugins service for Song
+  Fetcher to actually do anything (free signup at
+  [developer.jamendo.com](https://developer.jamendo.com)).
+- **All three services need redeploying** to pick up the memory-leak fix,
+  the gateway crash-resilience handlers, and everything else added this
+  session -- if the plugins service has been OOM-crashing, that should
+  stop once it's redeployed.
+- 512MB is genuinely tight for a service doing audio transcription/
+  fetching (Groq Whisper + Jamendo both pass real files through the
+  plugin engine) -- if OOMs continue after redeploying, the memory-leak
+  fix addressed real bugs, but some pressure here is inherent to what
+  those features do, and the free-tier plan may need revisiting for that
+  one service specifically.
+
+Next steps are whatever the project owner wants next.

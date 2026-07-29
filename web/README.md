@@ -11,7 +11,8 @@ configuration.
   NextAuth's `signIn` / `POST /api/register`).
 - `app/dashboard` -- protected (see `middleware.ts`). `page.tsx` lists the
   user's sessions; `sessions/[id]/plugins/page.tsx` is the per-session
-  plugin settings page.
+  plugin settings page -- a responsive icon grid (mod-menu style, big
+  emoji per plugin), click a tile to open its settings in a modal.
 - `app/api/sessions/*` -- user-facing, auth-checked (via
   `lib/session.ts`'s `requireUserId()`) session CRUD + pair/status/
   disconnect/reconnect, all proxying to whichever gateway instance the
@@ -20,11 +21,21 @@ configuration.
   (409) -- two live gateway connections for the same WhatsApp account
   corrupts its Signal session.
 - `app/api/sessions/[id]/plugins*` -- user-facing plugin config CRUD.
+- `app/api/sessions/[id]/stickers`, `.../[stickerId]` -- user-facing
+  sticker list (with base64 thumbnails) and delete-by-id. Delete targets a
+  specific sticker's own id, not its tag, since multiple stickers can
+  share a tag on purpose.
+- `app/api/sessions/[id]/notes`, `.../[noteId]` -- user-facing note list
+  and delete.
 - `app/api/internal/sessions/[id]/plugins`, `.../messages` -- **not**
   user-authenticated (no browser session exists in that context); gated by
   a shared secret header (`x-internal-secret` must match
   `INTERNAL_API_SECRET`). Called by the Python plugin engine to fetch
-  config+history and to append chat messages.
+  config+history (also piggybacks the session's saved sticker tags), and
+  to append chat messages. Also called directly by the **gateway** (not
+  just the plugin engine) for the two gateway-only features that have no
+  Python involvement at all -- Anti-Delete and Notes -- to read their own
+  enabled/settings.
 - `app/api/internal/gateway-sessions` -- same shared-secret gating.
   Called by a gateway instance on startup (`?gatewayUrl=<its own URL>`) to
   find out which sessions it used to hold before the process restarted, so
@@ -34,6 +45,13 @@ configuration.
   shared-secret gating. The generic persisted-scheduler API (create a
   task, fetch a gateway's own due/incomplete tasks, mark one complete) --
   see `gateway/README.md`'s "Scheduled tasks."
+- `app/api/internal/stickers`, `.../[sessionId]/[tag]` -- same
+  shared-secret gating. `POST` always inserts a new row (multiple
+  stickers can share a tag on purpose -- see the `Sticker` model below);
+  `GET` picks a random match among all stickers under that tag.
+- `app/api/internal/notes`, `.../[sessionId]/[name]` -- same
+  shared-secret gating. `POST` upserts by `(sessionId, name)` (re-saving a
+  name overwrites, unlike stickers); `GET` fetches one note for recall.
 - `app/api/admin/sessions/*`, `app/api/admin/shards/*` -- admin-only (see
   "Admin panel" below), gated by `lib/admin.ts`'s `requireAdmin()` (a
   logged-in user *and* their email in `ADMIN_EMAILS`), not the internal
@@ -63,15 +81,29 @@ configuration.
   rows from the admin-managed `GatewayShard` table, falling back to
   `GATEWAY_SHARD_URLS`/`GATEWAY_URL` whenever there are zero active DB
   rows.
-- `lib/plugins.ts` -- the plugin registry: keys, display metadata, default
-  settings. Add a new plugin here to give it a card on the dashboard.
+- `lib/plugins.ts` -- the plugin registry: keys, display metadata
+  (including an emoji `icon` for the dashboard grid), default settings.
+  Add a new plugin here to give it a tile. Six keys today: `autoreply`,
+  `ai_reply`, `ai_write`, `song`, `anti_delete`, `notes` -- the last two
+  have no Python plugin behind them at all (see `plugins/README.md`), just
+  a settings row the gateway reads directly.
 - `lib/personalities.ts` -- loads `../../personalities.json` (repo root,
   shared with the Python engine) and groups it by category for the AI
   Reply/AI Write dropdowns.
 - `components/plugins/*` -- one settings component per plugin
-  (`AutoReplySettings`, `AIReplySettings`, `AIWriteSettings`), plus the
-  shared `PluginCard` (toggle + expand) and `ExceptionsEditor` (per-contact
-  override list, used by both Auto Reply and AI Reply).
+  (`AutoReplySettings`, `AIReplySettings`, `AIWriteSettings`,
+  `SongSettings`, `AntiDeleteSettings`, `NotesSettings`), plus
+  `ExceptionsEditor` (per-contact override list, used by Auto Reply and AI
+  Reply), `StickerManager` (view/delete saved stickers, embedded in
+  `AIReplySettings`), and `NotesManager` (view/delete saved notes, embedded
+  in `NotesSettings`).
+- `components/plugins/PluginCard.tsx` -- a grid tile (big emoji icon, name,
+  enable toggle) rather than the old inline-expanding list item; clicking
+  it opens the plugin's settings component in a modal.
+- `components/DashboardHeader.tsx` -- the dashboard's nav bar, collapsing
+  into a hamburger menu below the `sm` breakpoint (verified in-browser at
+  375px: no horizontal overflow, menu opens/closes correctly) instead of
+  cramming logo/nav/email/sign-out into one row regardless of screen size.
 - `components/ConfirmModal.tsx` -- in-app confirmation dialog (title,
   message, confirm/cancel), used wherever a destructive action needs
   confirmation. Deliberately not the browser's native `confirm()` -- that
@@ -113,7 +145,13 @@ Models: `User`, `WaSession` (includes `gatewayUrl` for shard routing),
 removing a shard never affects sessions already assigned to it),
 `ScheduledTask` (generic persisted "run this typed action at/after a
 given time" -- currently used for temporary contact unblocks, reusable
-for future timed features; see `gateway/README.md`'s "Scheduled tasks").
+for future timed features; see `gateway/README.md`'s "Scheduled tasks"),
+`Sticker` (`data` is `Bytes`/`bytea` -- WhatsApp stickers are tiny `.webp`
+files, no object storage needed at this scale; **no** unique constraint on
+`(sessionId, tag)` -- multiple stickers can share a tag on purpose, a
+random one gets picked at send time), `Note` (unique on
+`(sessionId, name)` -- unlike stickers, re-saving a name overwrites; also
+stores media as `Bytes` when `kind` is `'media'`).
 
 **Do not run `prisma db push --accept-data-loss`** without reading exactly
 what it says it will drop first -- the `gateway` schema (a different

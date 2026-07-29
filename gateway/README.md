@@ -16,8 +16,13 @@ in `whatsappManager.js`).
   scheduled-task poller (see "Scheduled tasks" below).
 - `src/webClient.js` -- every call this service makes to the web app's
   internal API (everything else is the other direction: web calls
-  gateway): `fetchSessionsForGateway`, plus `createScheduledTask`/
-  `fetchDueTasks`/`completeScheduledTask` for the scheduler.
+  gateway): `fetchSessionsForGateway`, `createScheduledTask`/
+  `fetchDueTasks`/`completeScheduledTask` for the scheduler,
+  `saveSticker`/`fetchSticker`, `saveNote`/`fetchNote`, and
+  `fetchSessionPluginConfigs` (raw enabled-plugin list, used by the
+  gateway-only anti-delete/notes features -- see below). Every call has an
+  explicit timeout and routes errors through `describeFetchError()` so the
+  actual cause (not just Node's generic "fetch failed") shows up in logs.
 - `src/scheduler.js` -- the generic scheduled-task poller, see "Scheduled
   tasks" below.
 - `src/whatsappManager.js` -- the core: `startSession`, `reconnectSession`,
@@ -25,8 +30,9 @@ in `whatsappManager.js`).
   on transient disconnects (with capped exponential backoff -- see
   "Baileys gotchas" below), the `messages.upsert` handler that routes
   incoming messages to the plugin engine (`/message`) and the owner's own
-  outgoing messages to the rewrite flow (`/rewrite`), and LID-to-phone-number
-  resolution (see "LID resolution" below).
+  outgoing messages to the rewrite flow (`/rewrite`), LID-to-phone-number
+  resolution (see "LID resolution" below), sticker capture/sending,
+  anti-delete, and the notes system (see their own sections below).
 - `src/postgresAuthState.js` -- Postgres-backed replacement for Baileys'
   own `useMultiFileAuthState`. Same shape, same `BufferJSON` serialization,
   just a DB table instead of local files, so credentials survive the
@@ -35,7 +41,9 @@ in `whatsappManager.js`).
 - `src/pluginClient.js` -- HTTP client for the plugin engine
   (`forwardMessage`, `forwardOwnMessage`, `fetchExceptionNumbers` -- the
   phone numbers this session has exceptions configured for, used for LID
-  resolution).
+  resolution). `forwardMessage` also carries an optional `audio` field
+  both ways: incoming (a voice note to transcribe) and outgoing (a song
+  file to send, from the Song Fetcher plugin).
 
 ## Database
 
@@ -111,6 +119,97 @@ via `allowBlocking` -- see `plugins/README.md`). `messages.upsert` reads
 addressing JID, not the LID-resolved one used for plugin-engine lookups.
 A nonzero `blockDurationHours` also creates a `ScheduledTask` (see below)
 to automatically unblock later; `0` means permanent.
+
+## Sticker capture and sending
+
+The account owner teaches the bot a sticker by quote-replying to an
+existing sticker message with `/savesticker <tag>` -- `handleSaveStickerCommand`
+builds a synthetic top-level message around the quoted content (Baileys'
+`downloadMediaMessage` needs something shaped like a real message, but a
+quoted message isn't one) and uploads it via `saveSticker()`. Confirmation
+is delivered by editing the command message in place (`edit: msg.key`),
+not a new visible message.
+
+Multiple stickers can share the same tag on purpose -- re-saving a tag
+adds another one instead of overwriting, and the web app's fetch route
+picks a random match at send time, so a tag like "happy" can point to
+several different stickers and vary each time.
+
+AI Reply sends a sticker back via a `sticker_tag` field on the plugin
+engine's response; `messages.upsert` fetches its binary
+(`fetchSticker()`) and sends it with `{ sticker: buffer }`.
+
+## Voice notes and Song Fetcher (audio)
+
+A voice note (`msg.message.audioMessage` with `ptt: true` -- WhatsApp
+tells it apart from a shared audio file/song via that flag) has no text
+at all but is still forwarded to the plugin engine: `messages.upsert`
+downloads it and sends the bytes as an `audio` field alongside the usual
+payload; the plugin engine transcribes it via Groq Whisper and treats the
+result exactly like typed text from then on.
+
+The reverse direction (Song Fetcher sending a track back) reuses the same
+`audio` field shape on the *response*: `messages.upsert` sends it with
+`{ audio: buffer, mimetype, ptt: false }` -- `ptt: false` is what makes it
+render as a normal playable file attachment instead of the voice-message
+bubble.
+
+Both directions share one download helper (`downloadAnyMedia`/
+`detectMediaType` in `whatsappManager.js`) with the anti-delete/notes
+features below, so a voice note doesn't get downloaded twice over (once
+for anti-delete's caching, once for transcription) -- `cachedMedia` is
+captured once per message and reused wherever it's needed.
+
+## Anti-delete
+
+Gateway-only -- no Python plugin engine involvement at all. WhatsApp's
+"delete for everyone" doesn't actually un-deliver anything; it arrives as
+a normal message whose `message.protocolMessage.type` equals
+`proto.Message.ProtocolMessage.Type.REVOKE` (`proto` is a named export of
+`@whiskeysockets/baileys`), with `protocolMessage.key.id` pointing at the
+*original* message's id.
+
+`messages.upsert` caches every message it sees (text or, if anti-delete
+is enabled for the session, any media type -- image/video/audio/sticker/
+document, via the same `downloadAnyMedia` helper as voice notes) in a
+per-session `recentMessages` Map, bounded by both a count cap (2000) and a
+total-byte-size cap (50MB) since media entries vary wildly in size unlike
+this file's other small fixed-size caches. On a detected revoke,
+`handleMessageRevoke` looks up the cached entry and, if found and the
+feature's still enabled, sends it to the account's own JID (`sock.user.id`
+-- the "Message Yourself" chat) rather than back into the original chat
+or group, so the bot never re-broadcasts someone else's retracted message
+into a group where it could cause real conflict.
+
+Settings (`enabled`, `includeGroups`) are gateway-only too -- there's no
+Python plugin backing this key, just a `SessionPlugin` row the gateway
+reads directly via `fetchSessionPluginConfigs()`, TTL-cached per session
+(60s) since this is checked on every message (to decide whether to
+eagerly download media) but only actually *matters* at the rare moment of
+an actual deletion.
+
+## Notes system
+
+Also gateway-only, same TTL-cached settings pattern as anti-delete.
+`/savenote <name>` (owner-only, `fromMe`) quote-replies to any message --
+text or media -- to save it (`handleSaveNoteCommand`, reusing
+`downloadAnyMedia` again for the media case); re-saving a name overwrites
+it, unlike stickers. `#name` anywhere in an owner-sent message recalls it
+into whichever chat the command was typed in (`handleNoteRecall`) --
+returns `false` if nothing matches so the message still falls through to
+normal processing (e.g. AI Write), since not every `#word` someone types
+is meant as a note reference.
+
+## Crash resilience
+
+A Baileys internal error (uncaught, from deep inside its own retry/relay
+handling -- e.g. servicing a decrypt-retry request against a socket
+that's already closing) was found crashing the *entire* process,
+disconnecting every paired session on that shard at once instead of just
+the one that broke. Top-level `process.on('unhandledRejection', ...)` and
+`process.on('uncaughtException', ...)` handlers in `index.js` now log and
+keep the process running instead of letting Node's default behavior tear
+everything down.
 
 ## Scheduled tasks
 

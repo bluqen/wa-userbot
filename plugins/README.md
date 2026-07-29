@@ -37,19 +37,29 @@ web app's Postgres database, fetched per request.
   specifically to stop the case where the other side is *also* an
   automated bot and the two reply to each other back-to-back at machine
   speed -- a real human conversation never gets remotely close to the
-  threshold.
-- `app/llm.py` -- shared LLM client, used by both `ai_reply` and
-  `ai_write`. Tries `GROQ_MODEL`, then each of `GROQ_FALLBACK_MODELS` (env
-  var, comma-separated, defaults to `llama-3.1-8b-instant`) before falling
-  back to Gemini -- Groq's rate limits are per-model, not account-wide, so
-  a different model can still have headroom when the primary one is
-  capped. Supports multi-turn history (Groq: OpenAI-style `messages`
-  array; Gemini: `contents` with role `model` instead of `assistant`).
+  threshold. Its per-contact tracking dict is periodically swept (see
+  "Memory" below) rather than growing forever.
+- `app/stale_cache.py` -- shared cleanup helper (`maybe_sweep`) for the
+  handful of per-`(session_id, contact_jid)` dicts across this codebase
+  that would otherwise grow by one entry for every distinct contact ever
+  seen, for the process's entire lifetime -- a real memory leak on a
+  memory-constrained host. See "Memory" below.
+- `app/llm.py` -- shared LLM client, used by `ai_reply`, `ai_write`, and
+  voice-note transcription. Tries `GROQ_MODEL`, then each of
+  `GROQ_FALLBACK_MODELS` (env var, comma-separated, defaults to
+  `llama-3.1-8b-instant`) before falling back to Gemini -- Groq's rate
+  limits are per-model, not account-wide, so a different model can still
+  have headroom when the primary one is capped. Supports multi-turn
+  history (Groq: OpenAI-style `messages` array; Gemini: `contents` with
+  role `model` instead of `assistant`). Also has `transcribe_audio()` --
+  Groq also serves Whisper on the same free-tier account/API key already
+  used for chat, no separate signup needed.
 - `app/personalities.py` -- loads `../personalities.json` (repo root, 100
   entries, shared with the web dashboard's dropdown).
 - `app/plugins/autoreply.py`, `ai_reply.py` -- real `Plugin` subclasses,
   auto-discovered. `ai_reply.py` also supports opt-in blocking (see
-  "Blocking abusive contacts" below).
+  "Blocking abusive contacts" below), sticker sending, and voice-note
+  awareness (see "Humanlikeness" and "Stickers" below).
 - `app/plugins/ai_write.py` -- **not** a `Plugin` subclass (different
   shape: `should_process(session_id, chat_jid, text)` /
   `rewrite(session_id, chat_jid, text)`, since it acts on the owner's own
@@ -59,6 +69,20 @@ web app's Postgres database, fetched per request.
   the owner's own messages is causing rate-limit errors -- separate from
   `rate_limiter.py`'s circuit breaker, which is about auto-reply loops,
   not the owner's own outgoing messages.
+- `app/plugins/song.py` -- `SongPlugin`, triggered by
+  `/song <genre, mood, or artist>` from anyone chatting with the bot.
+  Searches Jamendo's Creative-Commons/independent-music catalog (built for
+  exactly this kind of third-party redistribution, unlike ripping
+  YouTube/Spotify) and sends back a track with artist/license attribution.
+  Requires `JAMENDO_CLIENT_ID` (see "Env vars" below); silently doesn't
+  match if unset. The download is streamed with an 8MB cap (see "Memory"
+  below) rather than fully buffered before checking its size.
+
+Anti-Delete and Notes are **not** here -- they're implemented entirely in
+the gateway (`gateway/src/whatsappManager.js`) since they need direct
+Baileys access (detecting a delete-for-everyone protocol message, reading
+message content before it's revoked) that this service has no reason to
+see. See `gateway/README.md`.
 
 ## Blocking abusive contacts
 
@@ -80,26 +104,104 @@ for how a temporary block automatically un-blocks later.
 
 ## Humanlikeness (`ai_reply.py`)
 
-A 0-100 per-session setting. At `0`, behavior is unchanged from before
+A 0-100 per-session setting, surfaced on the dashboard as named
+checkpoints (Off/Subtle/Natural/Expressive/Maximum at 0/25/50/75/100) --
+the underlying value is still a plain number, the UI just snaps the
+slider to those five points. At `0`, behavior is unchanged from before
 this existed: the configured `typingDurationMs` is used exactly, and
 every reply is a single plain message. Above `0`:
 
-- **Randomized delay** (`_compute_delay_ms`) -- widens the range randomly
-  sampled around the configured base delay; higher values mean more
-  variance, the way a real person's response time swings far more than
-  any fixed number would.
+- **Start delay** (`_compute_start_delay_ms`) -- a random pause *before
+  reacting at all*, independent of whether a typing indicator is even
+  shown. Without this, a reply with `showTyping` off still fired the
+  instant a message arrived regardless of humanlikeness.
+- **Randomized typing delay** (`_compute_delay_ms`) -- widens the range
+  randomly sampled around a base value; higher values mean more variance,
+  the way a real person's response time swings far more than any fixed
+  number would. The base itself now scales with the reply's actual length
+  (`_estimate_typing_ms`, ~40ms/char) rather than being one fixed number
+  regardless of message length -- `typingDurationMs` (the dashboard
+  setting) acts as a floor, not the only input.
 - **Style roll** (`_pick_style`) -- each reply independently rolls
   `plain`/`quote`/`split`, weighted by humanlikeness (max ~35% quote,
-  ~40% split at 100). `quote` replies to the specific incoming message
-  (WhatsApp's swipe-reply) instead of sending a new one. `split` sends
-  the reply as two separate messages at a sentence boundary with a short
-  gap between them, the way people often send a quick follow-up instead
-  of one longer message -- only picked when the text actually has 2+
-  sentences to split (`_split_into_parts`), otherwise falls back to plain.
+  ~40% split at 100), **decided before generation**, not inferred
+  afterward from whatever text came back. `quote` replies to the specific
+  incoming message (WhatsApp's swipe-reply) instead of sending a new one.
+  `split` asks the model directly to write two short parts separated by a
+  `[[SPLIT]]` marker (same sentinel-marker pattern as `[[BLOCK]]`/
+  `[[STICKER:tag]]` below) -- deciding this *before* the LLM call, rather
+  than checking after the fact whether the generated text happened to
+  have 2+ sentences, was a real fix: once brevity prompting (below) was
+  added, a good short reply is often exactly one sentence, so the
+  after-the-fact check almost never found anything to split.
+- **Reply-length cap** -- at humanlikeness >= 50, the prompt directly asks
+  for a short, casual reply and the LLM call gets a smaller `max_tokens`
+  budget (`_max_reply_tokens`); a character-count truncation
+  (`_max_reply_chars`/`_truncate_naturally`, cutting at a sentence or word
+  boundary, never mid-word) backstops both for whenever they weren't
+  enough on their own. A normal full-length LLM response is itself a tell
+  at higher humanlikeness -- real texting is rarely a whole paragraph.
+- **Stray-marker cleanup** (`_STRAY_MARKER_RE`) -- the model occasionally
+  hallucinates a bracket-wrapped word that isn't one of the three real
+  markers (seen in practice: `[[beautiful]]`), most likely confusing
+  itself over the several `[[...]]` conventions in its own prompt. Left
+  alone, that leaks into the visible message *and* gets saved to that
+  contact's chat history, where the model then imitates its own past habit
+  on the next turn -- self-reinforcing for that one conversation. Stripped
+  unconditionally, alongside the three real markers, before the reply is
+  ever returned.
 
 The actual sending (multi-part timing, the `quoted` option) happens in
 `gateway/src/whatsappManager.js` -- this plugin only decides the strategy
 and hands back `Reply.quote`/`Reply.parts`.
+
+## Stickers (`ai_reply.py`)
+
+Opt-in per session (`useSticker`, default on but inert until stickers
+exist; `stickerChance` slider, default 0). When a sticker tag is offered
+this turn (a random roll against `stickerChance`, only when
+`ctx.sticker_tags` is non-empty), the system prompt tells the model it may
+include `[[STICKER:tag]]` (one of the exact tags listed) anywhere in its
+reply. Same "strip regardless, act only if actually offered and valid"
+shape as `[[BLOCK]]`: the marker is always stripped, but `Reply.sticker_tag`
+is only set if a sticker was actually offered this turn *and* the model's
+tag matches one it was actually given (defense against both leakage and a
+hallucinated/copied tag). See `gateway/README.md`'s "Sticker capture and
+sending" for how a sticker actually gets taught (`/savesticker`) and sent.
+
+## Voice notes
+
+A voice note arrives with no text at all (`IncomingMessage.audio`, a
+base64 payload) -- `main.py`'s `/message` handler transcribes it via
+`llm.transcribe_audio()` (Groq Whisper) and treats the result exactly like
+typed text from then on, so every plugin (keyword Auto Reply, AI Reply,
+chat history) just works without any awareness that voice was involved.
+Only bothers if at least one plugin is actually enabled for the session --
+transcription is a real API call, not worth making otherwise.
+`MessageContext.is_voice` lets AI Reply add a light system-prompt nudge
+("this was transcribed, don't overreact to a mis-heard word") without
+changing anything else about how it replies.
+
+## Memory
+
+Three per-`(session_id, contact_jid)` dicts (`rate_limiter.py`'s
+`_reply_timestamps`, `ai_reply.py`'s `_last_replied`, `ai_write.py`'s
+`_last_rewritten`) used to never remove an entry once created -- every
+distinct contact who ever messaged any session left a permanent entry for
+the process's entire lifetime, eventually exhausting a memory-constrained
+host's RAM. `rate_limiter.py`'s is the fastest-growing since it runs on
+*every* incoming message, and now also deletes a contact's entry outright
+once their timestamps age out (previously left an empty list sitting
+there forever). All three additionally get a periodic probabilistic sweep
+(`app/stale_cache.py`'s `maybe_sweep`) that catches a contact who messages
+once and then never returns, which trim-on-access alone can't. Add any
+future per-contact tracking dict through `maybe_sweep` from the start
+rather than bolting cleanup on later.
+
+Also worth knowing: `song.py`'s Jamendo download is capped at 8MB and
+streamed (aborts mid-download rather than fully buffering an oversized
+file first) -- match this pattern for any future feature that downloads a
+file into memory.
 
 ## Latency
 
@@ -188,7 +290,16 @@ here.
 - `WEB_APP_URL` -- base URL of the web app's internal API.
 - `INTERNAL_API_SECRET` -- shared secret, must match `web/.env`'s value.
 - `GROQ_API_KEY`, `GROQ_MODEL` -- already configured.
+- `GROQ_FALLBACK_MODELS` -- comma-separated, tried in order if `GROQ_MODEL`
+  is rate-limited before falling back to Gemini. Defaults to
+  `llama-3.1-8b-instant`.
 - `GEMINI_API_KEY`, `GEMINI_MODEL` -- already configured, used as fallback.
+- `GROQ_WHISPER_MODEL` -- optional, defaults to `whisper-large-v3-turbo`.
+  Used for voice-note transcription (same `GROQ_API_KEY`, no separate
+  signup).
+- `JAMENDO_CLIENT_ID` -- optional, powers the Song Fetcher plugin. Free
+  signup at [developer.jamendo.com](https://developer.jamendo.com); the
+  plugin silently does nothing if this is unset.
 
 **Import-order gotcha**: `main.py` calls `load_dotenv()` as the very first
 thing, before any local imports -- `plugin_loader.py`'s auto-discovery

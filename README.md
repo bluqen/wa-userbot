@@ -116,11 +116,14 @@ Each service has a `.env.example` documenting what it needs; the real
 connection string, API keys, internal shared secret). Don't commit `.env`
 files -- they're gitignored.
 
-## The three plugins
+## The plugins
 
 All configured per WhatsApp session from the dashboard's Plugins page
-(`/dashboard/sessions/[id]/plugins`). Each is a card: toggle to
-enable/disable, expand to edit settings.
+(`/dashboard/sessions/[id]/plugins`) -- an icon grid, mod-menu style; click
+a tile to open its settings in a modal. Three (Auto Reply, AI Reply, Song
+Fetcher) go through the Python plugin engine's `/message` pipeline;
+Anti-Delete and Notes are gateway-only and never touch the plugin engine
+at all (see `gateway/README.md`).
 
 ## Admin panel
 
@@ -146,10 +149,23 @@ sections:
   dropdown and the Python plugin) or write a custom one. Remembers the
   last N messages per contact for multi-turn context. Per-contact
   exceptions can give a specific number its own personality or exclude it
-  entirely.
+  entirely. Also understands voice notes (transcribed via Groq Whisper)
+  and can send a saved sticker alongside a reply. A humanlikeness slider
+  (Off/Subtle/Natural/Expressive/Maximum) adds randomized delay,
+  swipe-reply/message-splitting, and a reply-length cap at higher
+  settings.
 - **AI Write** -- instantly edits the *owner's own* outgoing messages
   (typo/grammar fixes by default, or a chosen tone/translation/custom
   style) via WhatsApp's native message-edit feature.
+- **Song Fetcher** -- `/song <genre, mood, or artist>` sends back a
+  Creative-Commons-licensed track from Jamendo's catalog (independent
+  music, not mainstream releases) with artist/license attribution.
+  Requires a free `JAMENDO_CLIENT_ID`.
+- **Anti-Delete** -- privately tells the owner what a deleted message said
+  (any media type), in their own "Message Yourself" chat, never
+  re-posted back into the original chat/group.
+- **Notes** -- reply-quote any message with `/savenote <name>` to save it
+  (text or media), recall it into any chat later with `#name`.
 
 ## Writing a new reply plugin
 
@@ -198,4 +214,15 @@ Current live URLs and full deployment notes are in `STATUS.md`.
   `/dashboard/admin/shards`, falling back to `GATEWAY_SHARD_URLS`/
   `GATEWAY_URL` when no shards are registered), but only one gateway
   instance is actually running right now.
+- The plugin engine's free-tier host caps memory at 512MB, which is
+  genuinely tight for a service that passes real audio files through
+  itself (Groq Whisper transcription, Jamendo song downloads) -- both
+  paths are capped at 8MB per file, but heavy concurrent usage could still
+  need a paid plan for that one service eventually.
+- Song Fetcher only finds independent/Creative-Commons music (Jamendo's
+  catalog) -- a request for a mainstream commercial song will come up
+  empty by design, not by bug.
+- Anti-Delete and Notes only capture media up to 8MB; a larger file (e.g.
+  a long video) that gets deleted or reply-quoted for `/savenote` won't be
+  recoverable/saveable.
 - See `STATUS.md` for current deployment details and anything in progress.

@@ -33,6 +33,7 @@ model WaSession {
   scheduledTasks ScheduledTask[]
   stickers    Sticker[]
   notes       Note[]
+  broadcastGroups BroadcastGroup[]
 
   @@index([userId])
 }
@@ -133,6 +134,23 @@ model Note {
   mimetype  String?
   mediaType String?   // Baileys message-type key (imageMessage/videoMessage/...), so it can be resent as the same kind of attachment
   fileName  String?
+  createdAt DateTime  @default(now())
+
+  @@unique([sessionId, name])
+}
+
+// A group the owner has tagged for broadcast use by sending
+// "/addbroadcast <name>" *inside* that group (see gateway/README.md) --
+// avoids ever needing to know/type a group's opaque JID by hand. Re-using
+// a name re-tags whichever group it's sent in next, same overwrite
+// semantics as Note above.
+model BroadcastGroup {
+  id        String    @id @default(cuid())
+  sessionId String
+  session   WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  name      String
+  jid       String
+  groupName String    @default("")
   createdAt DateTime  @default(now())
 
   @@unique([sessionId, name])

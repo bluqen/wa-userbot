@@ -63,12 +63,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const { message, recipients, sendAt } = await req.json();
+  const { message, recipients, groupIds, sendAt } = await req.json();
   if (typeof message !== 'string' || !message.trim()) {
     return NextResponse.json({ error: 'message is required' }, { status: 400 });
   }
-  if (!Array.isArray(recipients) || recipients.length === 0) {
-    return NextResponse.json({ error: 'at least one recipient is required' }, { status: 400 });
+
+  const recipientList = Array.isArray(recipients) ? recipients : [];
+  const groupIdList = Array.isArray(groupIds) ? groupIds : [];
+  if (recipientList.length === 0 && groupIdList.length === 0) {
+    return NextResponse.json(
+      { error: 'at least one recipient or group is required' },
+      { status: 400 },
+    );
   }
 
   const runAt = sendAt ? new Date(sendAt) : new Date();
@@ -76,20 +82,34 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: 'sendAt must be a valid date' }, { status: 400 });
   }
 
-  const batchId = randomUUID();
-  const digitsOnly = recipients
+  const digitsOnly = recipientList
     .map((r) => String(r).replace(/\D/g, ''))
     .filter((r) => r.length > 0);
-  if (digitsOnly.length === 0) {
-    return NextResponse.json({ error: 'no valid recipient numbers found' }, { status: 400 });
+
+  let groupJids: string[] = [];
+  if (groupIdList.length > 0) {
+    const groups = await prisma.broadcastGroup.findMany({
+      where: { id: { in: groupIdList }, sessionId: params.id },
+      select: { jid: true },
+    });
+    groupJids = groups.map((g) => g.jid);
   }
 
+  const targetJids = [
+    ...digitsOnly.map((digits) => `${digits}@s.whatsapp.net`),
+    ...groupJids,
+  ];
+  if (targetJids.length === 0) {
+    return NextResponse.json({ error: 'no valid recipients found' }, { status: 400 });
+  }
+
+  const batchId = randomUUID();
   await prisma.scheduledTask.createMany({
-    data: digitsOnly.map((digits) => ({
+    data: targetJids.map((jid) => ({
       sessionId: params.id,
       type: BROADCAST_TYPE,
       payload: JSON.stringify({
-        jid: `${digits}@s.whatsapp.net`,
+        jid,
         message: message.trim(),
         batchId,
       } satisfies BroadcastPayload),
@@ -97,5 +117,5 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     })),
   });
 
-  return NextResponse.json({ batchId, recipientCount: digitsOnly.length });
+  return NextResponse.json({ batchId, recipientCount: targetJids.length });
 }

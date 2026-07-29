@@ -12,21 +12,36 @@ type Broadcast = {
   sent: number;
 };
 
+type BroadcastGroup = {
+  id: string;
+  name: string;
+  groupName: string;
+};
+
 export default function BroadcastsManager({ sessionId }: { sessionId: string }) {
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
+  const [groups, setGroups] = useState<BroadcastGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [recipients, setRecipients] = useState('');
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [sendAt, setSendAt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
 
   const fetchBroadcasts = useCallback(async () => {
-    const res = await fetch(`/api/sessions/${sessionId}/broadcasts`);
-    if (res.ok) {
-      const data = await res.json();
+    const [broadcastsRes, groupsRes] = await Promise.all([
+      fetch(`/api/sessions/${sessionId}/broadcasts`),
+      fetch(`/api/sessions/${sessionId}/broadcast-groups`),
+    ]);
+    if (broadcastsRes.ok) {
+      const data = await broadcastsRes.json();
       setBroadcasts(data.broadcasts || []);
+    }
+    if (groupsRes.ok) {
+      const data = await groupsRes.json();
+      setGroups(data.groups || []);
     }
     setLoading(false);
   }, [sessionId]);
@@ -35,6 +50,12 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
     fetchBroadcasts();
   }, [fetchBroadcasts]);
 
+  function toggleGroup(id: string) {
+    setSelectedGroupIds((prev) =>
+      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
+    );
+  }
+
   async function handleSend() {
     setError(null);
     const recipientList = recipients
@@ -42,8 +63,8 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
       .map((r) => r.trim())
       .filter(Boolean);
 
-    if (!message.trim() || recipientList.length === 0) {
-      setError('A message and at least one recipient are required.');
+    if (!message.trim() || (recipientList.length === 0 && selectedGroupIds.length === 0)) {
+      setError('A message and at least one recipient or group are required.');
       return;
     }
 
@@ -54,6 +75,7 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
       body: JSON.stringify({
         message,
         recipients: recipientList,
+        groupIds: selectedGroupIds,
         sendAt: sendAt ? new Date(sendAt).toISOString() : null,
       }),
     });
@@ -67,6 +89,7 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
 
     setMessage('');
     setRecipients('');
+    setSelectedGroupIds([]);
     setSendAt('');
     fetchBroadcasts();
   }
@@ -101,6 +124,38 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
           placeholder={'15551234567\n15559998888'}
           className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">
+          Groups {groups.length === 0 && <span className="font-normal text-slate-500">(none tagged yet)</span>}
+        </label>
+        <p className="mb-2 text-xs text-slate-500">
+          Send <code className="rounded bg-surface px-1">/addbroadcast &lt;name&gt;</code> inside a
+          group to tag it for broadcasts -- no need to know its number.
+        </p>
+        {groups.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {groups.map((g) => (
+              <label
+                key={g.id}
+                className={`cursor-pointer rounded-full border px-3 py-1 text-xs transition ${
+                  selectedGroupIds.includes(g.id)
+                    ? 'border-violet-500 bg-violet-950/40 text-violet-300'
+                    : 'border-surface-border text-slate-400 hover:bg-surface'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedGroupIds.includes(g.id)}
+                  onChange={() => toggleGroup(g.id)}
+                  className="sr-only"
+                />
+                {g.groupName || g.name} <span className="opacity-60">#{g.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>

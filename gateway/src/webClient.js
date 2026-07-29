@@ -143,3 +143,17 @@ export async function fetchNote(sessionId, name) {
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
   return res.json();
 }
+
+// Tags a group for broadcast use via "/addbroadcast <name>" sent inside
+// it (see whatsappManager.js) -- upserts by (sessionId, name), so re-using
+// a name re-tags whichever group it was sent in most recently.
+export async function saveBroadcastGroup({ sessionId, name, jid, groupName }) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/broadcast-groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
+    body: JSON.stringify({ sessionId, name, jid, groupName }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  return res.json();
+}

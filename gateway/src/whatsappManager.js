@@ -18,11 +18,13 @@ import {
   fetchSessionPluginConfigs,
   saveNote,
   fetchNote,
+  saveBroadcastGroup,
   describeFetchError,
 } from './webClient.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
 const SAVE_NOTE_COMMAND = /^\/savenote\s+(\S+)/i;
+const ADD_BROADCAST_COMMAND = /^\/addbroadcast\s+(\S+)/i;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "/savenote", and voice-note
@@ -87,6 +89,11 @@ function deriveAntiDeleteConfig(plugins) {
 
 function deriveNotesConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'notes');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveBroadcastConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'broadcast');
   return { enabled: !!(entry && entry.enabled) };
 }
 
@@ -313,6 +320,51 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
     await sock.sendMessage(
       msg.key.remoteJid,
       { text: `Failed to save note: ${detail}`, edit: msg.key },
+    );
+  }
+}
+
+// Lets the owner tag a group for broadcast use with "/addbroadcast <name>"
+// sent *inside* that group -- avoids ever needing to know/type the
+// group's opaque JID by hand. Only valid inside a group; using it in a DM
+// doesn't mean anything.
+async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
+  const name = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (!name) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: 'Usage: /addbroadcast <name> (send inside the group)', edit: msg.key },
+    );
+    return;
+  }
+  if (!msg.key.remoteJid.endsWith('@g.us')) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: '/addbroadcast only works inside a group.', edit: msg.key },
+    );
+    return;
+  }
+
+  try {
+    let groupName = '';
+    try {
+      const metadata = await sock.groupMetadata(msg.key.remoteJid);
+      groupName = metadata.subject || '';
+    } catch {
+      // Non-fatal -- the group still gets tagged, just without a friendly
+      // display name for the dashboard's group picker.
+    }
+    await saveBroadcastGroup({ sessionId: userId, name, jid: msg.key.remoteJid, groupName });
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `This group is now tagged for broadcasts as "${name}"`, edit: msg.key },
+    );
+  } catch (err) {
+    const detail = describeFetchError(err);
+    console.error(`[${userId}] failed to save broadcast group "${name}":`, detail);
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `Failed to tag group: ${detail}`, edit: msg.key },
     );
   }
 }
@@ -829,6 +881,15 @@ export async function startSession(userId, phoneNumber) {
           const notes = deriveNotesConfig(await refreshPluginConfigs());
           if (notes.enabled) {
             await handleSaveNoteCommand(userId, sock, msg, saveNoteMatch[1]);
+            continue;
+          }
+        }
+
+        const addBroadcastMatch = text.match(ADD_BROADCAST_COMMAND);
+        if (addBroadcastMatch) {
+          const broadcast = deriveBroadcastConfig(await refreshPluginConfigs());
+          if (broadcast.enabled) {
+            await handleAddBroadcastCommand(userId, sock, msg, addBroadcastMatch[1]);
             continue;
           }
         }

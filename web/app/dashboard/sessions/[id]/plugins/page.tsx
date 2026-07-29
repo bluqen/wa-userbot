@@ -22,6 +22,11 @@ import AntiLinkSettings, {
 } from '@/components/plugins/AntiLinkSettings';
 import GamesSettings, { type GamesSettingsValue } from '@/components/plugins/GamesSettings';
 import BroadcastsManager from '@/components/plugins/BroadcastsManager';
+import TagAllSettings from '@/components/plugins/TagAllSettings';
+import PollsSettings from '@/components/plugins/PollsSettings';
+import StatusViewSettings from '@/components/plugins/StatusViewSettings';
+import SudoSettings, { type SudoSettingsValue } from '@/components/plugins/SudoSettings';
+import LeadsSettings, { type LeadsSettingsValue } from '@/components/plugins/LeadsSettings';
 
 type PluginConfig = {
   key: string;
@@ -140,6 +145,22 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
                 />
               )}
               {plugin.key === 'broadcast' && <BroadcastsManager sessionId={params.id} />}
+              {plugin.key === 'tagall' && <TagAllSettings />}
+              {plugin.key === 'polls' && <PollsSettings />}
+              {plugin.key === 'statusview' && <StatusViewSettings />}
+              {plugin.key === 'sudo' && (
+                <SudoSettings
+                  value={plugin.settings as SudoSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'leads' && (
+                <LeadsSettings
+                  sessionId={params.id}
+                  value={plugin.settings as LeadsSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
             </PluginCard>
           ))
         )}

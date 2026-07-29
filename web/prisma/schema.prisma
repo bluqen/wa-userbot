@@ -34,6 +34,7 @@ model WaSession {
   stickers    Sticker[]
   notes       Note[]
   broadcastGroups BroadcastGroup[]
+  leads       Lead[]
 
   @@index([userId])
 }
@@ -137,6 +138,23 @@ model Note {
   createdAt DateTime  @default(now())
 
   @@unique([sessionId, name])
+}
+
+// Sales-lead signals (name/need/budget/timeline) the "leads" plugin
+// quietly extracts from a conversation via an LLM call -- never shown to
+// the customer, purely for the owner's own dashboard reference. Upserts
+// by (sessionId, contactJid): the latest summary wins, since a running
+// history of every extraction attempt isn't the point, just the current
+// read on that contact.
+model Lead {
+  id         String    @id @default(cuid())
+  sessionId  String
+  session    WaSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  contactJid String
+  summary    String
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([sessionId, contactJid])
 }
 
 // A group the owner has tagged for broadcast use by sending

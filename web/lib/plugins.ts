@@ -8,7 +8,12 @@ export type PluginKey =
   | 'welcome'
   | 'antilink'
   | 'games'
-  | 'broadcast';
+  | 'broadcast'
+  | 'tagall'
+  | 'polls'
+  | 'statusview'
+  | 'sudo'
+  | 'leads';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -21,6 +26,11 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'antilink',
   'games',
   'broadcast',
+  'tagall',
+  'polls',
+  'statusview',
+  'sudo',
+  'leads',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -73,6 +83,31 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     name: 'Broadcasts',
     description: 'Send a message to a list of contacts, now or later.',
     icon: '📢',
+  },
+  tagall: {
+    name: 'Tag Everyone',
+    description: 'Mention every group member with "/tagall <message>".',
+    icon: '📣',
+  },
+  polls: {
+    name: 'Polls',
+    description: 'Create a poll with "/poll question | option1 | option2".',
+    icon: '📊',
+  },
+  statusview: {
+    name: 'Auto Status View',
+    description: 'Automatically views everyone\'s WhatsApp Status updates.',
+    icon: '👁️',
+  },
+  sudo: {
+    name: 'Sudo Numbers',
+    description: 'Let trusted numbers use Tag Everyone and Polls for you.',
+    icon: '🛡️',
+  },
+  leads: {
+    name: 'Lead Capture',
+    description: 'Quietly logs names, needs, and budgets from your chats.',
+    icon: '📇',
   },
 };
 
@@ -129,6 +164,15 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     replyInGroups: false,
   },
   broadcast: {},
+  tagall: {},
+  polls: {},
+  statusview: {},
+  sudo: {
+    numbers: [],
+  },
+  leads: {
+    cooldownMinutes: 30,
+  },
 };
 
 export function isPluginKey(key: string): key is PluginKey {

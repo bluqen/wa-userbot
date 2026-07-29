@@ -25,6 +25,8 @@ import {
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
 const SAVE_NOTE_COMMAND = /^\/savenote\s+(\S+)/i;
 const ADD_BROADCAST_COMMAND = /^\/addbroadcast\s+(\S+)/i;
+const TAG_ALL_COMMAND = /^\/tagall(?:\s+([\s\S]+))?$/i;
+const POLL_COMMAND = /^\/poll\s+([\s\S]+)/i;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "/savenote", and voice-note
@@ -95,6 +97,33 @@ function deriveNotesConfig(plugins) {
 function deriveBroadcastConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'broadcast');
   return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveTagAllConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'tagall');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function derivePollsConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'polls');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveStatusViewConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'statusview');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+// Trusted numbers who can use /tagall and /poll without being the account
+// owner. Deliberately scoped to just these two utility commands rather
+// than every owner-only capability (savesticker/savenote/addbroadcast
+// stay owner-only) to avoid widening what a designated number can do
+// beyond what's actually needed.
+function deriveSudoConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'sudo');
+  if (!entry || !entry.enabled) return { enabled: false, numbers: [] };
+  const numbers = Array.isArray(entry.settings?.numbers) ? entry.settings.numbers : [];
+  return { enabled: true, numbers: numbers.map((n) => String(n).replace(/\D/g, '')) };
 }
 
 const DEFAULT_WELCOME_MESSAGE = 'Welcome to {group}, {user}! 👋';
@@ -366,6 +395,47 @@ async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
       msg.key.remoteJid,
       { text: `Failed to tag group: ${detail}`, edit: msg.key },
     );
+  }
+}
+
+// "/tagall <message>" -- mentions every group member at once. Only
+// meaningful inside a group; the mention list is silent (no visible @tag
+// text per person) but still pings everyone, same as a real @all mention.
+async function handleTagAllCommand(userId, sock, msg, rawMessage) {
+  if (!msg.key.remoteJid.endsWith('@g.us')) {
+    await sock.sendMessage(msg.key.remoteJid, { text: '/tagall only works inside a group.', edit: msg.key });
+    return;
+  }
+  try {
+    const metadata = await sock.groupMetadata(msg.key.remoteJid);
+    const participantJids = metadata.participants.map((p) => p.id);
+    const text = (rawMessage || 'Attention everyone!').trim();
+    await sock.sendMessage(msg.key.remoteJid, { text, mentions: participantJids });
+  } catch (err) {
+    console.error(`[${userId}] /tagall failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: `Failed to tag everyone: ${err.message}`, edit: msg.key });
+  }
+}
+
+// "/poll question | option1 | option2 | ..." -- sends a real native
+// WhatsApp poll (not a text-based fake one).
+async function handlePollCommand(userId, sock, msg, rawPoll) {
+  const parts = rawPoll.split('|').map((p) => p.trim()).filter(Boolean);
+  const [question, ...options] = parts;
+  if (!question || options.length < 2) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: 'Usage: /poll question | option1 | option2 | ...(up to 12 options)', edit: msg.key },
+    );
+    return;
+  }
+  try {
+    await sock.sendMessage(msg.key.remoteJid, {
+      poll: { name: question, values: options.slice(0, 12), selectableCount: 1 },
+    });
+  } catch (err) {
+    console.error(`[${userId}] /poll failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: `Failed to create poll: ${err.message}`, edit: msg.key });
   }
 }
 
@@ -782,6 +852,21 @@ export async function startSession(userId, phoneNumber) {
         continue;
       }
 
+      // WhatsApp Status updates arrive as ordinary messages addressed to
+      // this special broadcast JID -- marking them read is what makes
+      // them show as "viewed" to whoever posted it.
+      if (msg.key.remoteJid === 'status@broadcast' && !msg.key.fromMe) {
+        const statusView = deriveStatusViewConfig(await refreshPluginConfigs());
+        if (statusView.enabled) {
+          try {
+            await sock.readMessages([msg.key]);
+          } catch (err) {
+            console.error(`[${userId}] failed to auto-view status:`, err.message);
+          }
+        }
+        continue;
+      }
+
       const text =
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
@@ -859,6 +944,30 @@ export async function startSession(userId, phoneNumber) {
       const isVoiceNote = msg.message.audioMessage?.ptt === true;
       if (!text && !(isVoiceNote && !msg.key.fromMe)) continue;
 
+      // Sudo: a trusted number who isn't the account owner can still use
+      // /tagall and /poll (only those two -- not savesticker/savenote/
+      // addbroadcast, which stay owner-only). Checked here, before the
+      // normal fromMe/non-fromMe branches below, so it doesn't disturb
+      // either of them; anything that isn't one of these two commands
+      // falls straight through to normal non-owner processing exactly as
+      // if the sender had no sudo status at all.
+      if (!msg.key.fromMe) {
+        const senderPhone = (msg.key.participant || msg.key.remoteJid).split('@')[0];
+        const sudo = deriveSudoConfig(await refreshPluginConfigs());
+        if (sudo.enabled && sudo.numbers.includes(senderPhone)) {
+          const sudoTagAllMatch = text.match(TAG_ALL_COMMAND);
+          if (sudoTagAllMatch && deriveTagAllConfig(await refreshPluginConfigs()).enabled) {
+            await handleTagAllCommand(userId, sock, msg, sudoTagAllMatch[1]);
+            continue;
+          }
+          const sudoPollMatch = text.match(POLL_COMMAND);
+          if (sudoPollMatch && derivePollsConfig(await refreshPluginConfigs()).enabled) {
+            await handlePollCommand(userId, sock, msg, sudoPollMatch[1]);
+            continue;
+          }
+        }
+      }
+
       // The plugin engine only ever needs this to key config/exceptions and
       // chat history -- actual sends below still target msg.key.remoteJid
       // as-is, since that's what WhatsApp expects for this chat.
@@ -890,6 +999,24 @@ export async function startSession(userId, phoneNumber) {
           const broadcast = deriveBroadcastConfig(await refreshPluginConfigs());
           if (broadcast.enabled) {
             await handleAddBroadcastCommand(userId, sock, msg, addBroadcastMatch[1]);
+            continue;
+          }
+        }
+
+        const tagAllMatch = text.match(TAG_ALL_COMMAND);
+        if (tagAllMatch) {
+          const tagall = deriveTagAllConfig(await refreshPluginConfigs());
+          if (tagall.enabled) {
+            await handleTagAllCommand(userId, sock, msg, tagAllMatch[1]);
+            continue;
+          }
+        }
+
+        const pollMatch = text.match(POLL_COMMAND);
+        if (pollMatch) {
+          const polls = derivePollsConfig(await refreshPluginConfigs());
+          if (polls.enabled) {
+            await handlePollCommand(userId, sock, msg, pollMatch[1]);
             continue;
           }
         }

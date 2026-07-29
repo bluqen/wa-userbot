@@ -90,6 +90,95 @@ function deriveNotesConfig(plugins) {
   return { enabled: !!(entry && entry.enabled) };
 }
 
+const DEFAULT_WELCOME_MESSAGE = 'Welcome to {group}, {user}! 👋';
+const DEFAULT_GOODBYE_MESSAGE = '{user} left {group}. 👋';
+
+function deriveWelcomeConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'welcome');
+  if (!entry || !entry.enabled) {
+    return { enabled: false, welcomeEnabled: false, goodbyeEnabled: false };
+  }
+  const settings = entry.settings || {};
+  return {
+    enabled: true,
+    welcomeEnabled: settings.welcomeEnabled !== false,
+    goodbyeEnabled: settings.goodbyeEnabled !== false,
+    welcomeMessage: settings.welcomeMessage || DEFAULT_WELCOME_MESSAGE,
+    goodbyeMessage: settings.goodbyeMessage || DEFAULT_GOODBYE_MESSAGE,
+  };
+}
+
+function deriveAntiLinkConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'antilink');
+  if (!entry || !entry.enabled) return { enabled: false, kickAfterWarnings: 0 };
+  const settings = entry.settings || {};
+  return { enabled: true, kickAfterWarnings: Number(settings.kickAfterWarnings) || 0 };
+}
+
+// Fills {user}/{group} placeholders in a welcome/goodbye template. `user`
+// is passed as a plain @mention string (not a real mention/ping) to keep
+// this simple -- WhatsApp mention pings require passing JIDs through
+// sendMessage's own `mentions` array, which the caller still does
+// separately for the actual ping; this is just the visible text.
+function fillTemplate(template, { user, group }) {
+  return template.replace(/\{user\}/g, user).replace(/\{group\}/g, group);
+}
+
+const URL_RE = /https?:\/\/|www\.[a-z0-9-]+\.[a-z]{2,}/i;
+const MAX_ANTILINK_GROUPS_TRACKED = 200;
+
+// Deletes a link posted by a non-admin in a group, and -- if the plugin's
+// kickAfterWarnings is set -- removes them once they've hit that many
+// violations. Both actions require the bot's own account to actually be a
+// group admin; if it isn't, Baileys/WhatsApp will reject the call, which is
+// caught and logged rather than crashing the whole message loop.
+async function handleAntiLinkViolation(userId, sock, msg, groupJid, participantJid, kickAfterWarnings, antiLinkViolations) {
+  try {
+    await sock.sendMessage(groupJid, { delete: msg.key });
+  } catch (err) {
+    console.error(
+      `[${userId}] anti-link: failed to delete message in ${groupJid} (is the bot a group admin?):`,
+      err.message,
+    );
+    return;
+  }
+
+  if (kickAfterWarnings <= 0) return;
+
+  let groupViolations = antiLinkViolations.get(groupJid);
+  if (!groupViolations) {
+    groupViolations = new Map();
+    antiLinkViolations.set(groupJid, groupViolations);
+    if (antiLinkViolations.size > MAX_ANTILINK_GROUPS_TRACKED) {
+      antiLinkViolations.delete(antiLinkViolations.keys().next().value);
+    }
+  }
+  const count = (groupViolations.get(participantJid) || 0) + 1;
+  groupViolations.set(participantJid, count);
+
+  const mentionText = `@${participantJid.split('@')[0]}`;
+  if (count >= kickAfterWarnings) {
+    groupViolations.delete(participantJid);
+    try {
+      await sock.groupParticipantsUpdate(groupJid, [participantJid], 'remove');
+    } catch (err) {
+      console.error(
+        `[${userId}] anti-link: failed to remove ${participantJid} from ${groupJid} (is the bot a group admin?):`,
+        err.message,
+      );
+    }
+  } else {
+    try {
+      await sock.sendMessage(groupJid, {
+        text: `${mentionText} link removed -- warning ${count}/${kickAfterWarnings}.`,
+        mentions: [participantJid],
+      });
+    } catch (err) {
+      console.error(`[${userId}] anti-link: failed to send warning in ${groupJid}:`, err.message);
+    }
+  }
+}
+
 // Lets the account owner teach the bot a sticker by quote-replying to an
 // existing sticker message with "/savesticker <tag>" -- see
 // gateway/README.md's "Sticker capture". Feedback is given by editing the
@@ -424,6 +513,12 @@ export async function startSession(userId, phoneNumber) {
   const MAX_RECENT_BYTES = 50 * 1024 * 1024;
   let recentMessagesBytes = 0;
 
+  // Anti-link's warning counter: group JID -> Map(participant JID -> count).
+  // Only grows if kickAfterWarnings is actually configured; capped at the
+  // outer (group) level since a session realistically has far fewer groups
+  // than contacts.
+  const antiLinkViolations = new Map();
+
   function entrySize(entry) {
     return entry.buffer ? entry.buffer.length : entry.text ? entry.text.length : 0;
   }
@@ -675,6 +770,35 @@ export async function startSession(userId, phoneNumber) {
         }
       }
 
+      // Anti-link: only groups, only messages from someone else (the
+      // owner's own links are never touched), only if it actually
+      // contains something link-shaped.
+      if (isGroupChat && !msg.key.fromMe && text && URL_RE.test(text)) {
+        const antiLink = deriveAntiLinkConfig(await refreshPluginConfigs());
+        if (antiLink.enabled) {
+          const participantJid = msg.key.participant || msg.key.remoteJid;
+          try {
+            const metadata = await sock.groupMetadata(msg.key.remoteJid);
+            const participant = metadata.participants.find((p) => p.id === participantJid);
+            const isSenderAdmin = participant?.admin === 'admin' || participant?.admin === 'superadmin';
+            if (!isSenderAdmin) {
+              await handleAntiLinkViolation(
+                userId,
+                sock,
+                msg,
+                msg.key.remoteJid,
+                participantJid,
+                antiLink.kickAfterWarnings,
+                antiLinkViolations,
+              );
+              continue;
+            }
+          } catch (err) {
+            console.error(`[${userId}] anti-link: failed to check group admin status:`, err.message);
+          }
+        }
+      }
+
       // A voice note (as opposed to a shared audio file, e.g. a song --
       // WhatsApp tells the two apart via `ptt`, push-to-talk) has no text
       // at all, but is still something worth answering. Only the incoming
@@ -860,6 +984,36 @@ export async function startSession(userId, phoneNumber) {
         }
       } catch (err) {
         console.error(`[${userId}] plugin dispatch failed:`, err.message);
+      }
+    }
+  });
+
+  sock.ev.on('group-participants.update', async ({ id: groupJid, participants, action }) => {
+    if (action !== 'add' && action !== 'remove') return; // ignore promote/demote
+
+    const welcome = deriveWelcomeConfig(await refreshPluginConfigs());
+    if (!welcome.enabled) return;
+    if (action === 'add' && !welcome.welcomeEnabled) return;
+    if (action === 'remove' && !welcome.goodbyeEnabled) return;
+
+    let groupName = groupJid.split('@')[0];
+    try {
+      const metadata = await sock.groupMetadata(groupJid);
+      groupName = metadata.subject || groupName;
+    } catch (err) {
+      console.error(`[${userId}] failed to fetch group metadata for ${groupJid}:`, err.message);
+    }
+
+    const template = action === 'add' ? welcome.welcomeMessage : welcome.goodbyeMessage;
+    for (const participantJid of participants) {
+      const user = `@${participantJid.split('@')[0]}`;
+      try {
+        await sock.sendMessage(groupJid, {
+          text: fillTemplate(template, { user, group: groupName }),
+          mentions: [participantJid],
+        });
+      } catch (err) {
+        console.error(`[${userId}] failed to send welcome/goodbye in ${groupJid}:`, err.message);
       }
     }
   });

@@ -13,6 +13,14 @@ import AntiDeleteSettings, {
   type AntiDeleteSettingsValue,
 } from '@/components/plugins/AntiDeleteSettings';
 import NotesSettings from '@/components/plugins/NotesSettings';
+import WelcomeSettings, {
+  type WelcomeSettingsValue,
+} from '@/components/plugins/WelcomeSettings';
+import AntiLinkSettings, {
+  type AntiLinkSettingsValue,
+} from '@/components/plugins/AntiLinkSettings';
+import GamesSettings, { type GamesSettingsValue } from '@/components/plugins/GamesSettings';
+import BroadcastsManager from '@/components/plugins/BroadcastsManager';
 
 type PluginConfig = {
   key: string;
@@ -109,6 +117,25 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
                 />
               )}
               {plugin.key === 'notes' && <NotesSettings sessionId={params.id} />}
+              {plugin.key === 'welcome' && (
+                <WelcomeSettings
+                  value={plugin.settings as WelcomeSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'antilink' && (
+                <AntiLinkSettings
+                  value={plugin.settings as AntiLinkSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'games' && (
+                <GamesSettings
+                  value={plugin.settings as GamesSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'broadcast' && <BroadcastsManager sessionId={params.id} />}
             </PluginCard>
           ))
         )}

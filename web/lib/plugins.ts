@@ -1,4 +1,14 @@
-export type PluginKey = 'autoreply' | 'ai_reply' | 'ai_write' | 'song' | 'anti_delete' | 'notes';
+export type PluginKey =
+  | 'autoreply'
+  | 'ai_reply'
+  | 'ai_write'
+  | 'song'
+  | 'anti_delete'
+  | 'notes'
+  | 'welcome'
+  | 'antilink'
+  | 'games'
+  | 'broadcast';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -7,6 +17,10 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'song',
   'anti_delete',
   'notes',
+  'welcome',
+  'antilink',
+  'games',
+  'broadcast',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -43,6 +57,27 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description:
       'Reply to any message -- text or media -- with "/savenote <name>" to save it, then drop it into any conversation later with "#name".',
     icon: '📝',
+  },
+  welcome: {
+    name: 'Welcome/Goodbye',
+    description: 'Automatically greets new group members and sends a farewell when someone leaves.',
+    icon: '👋',
+  },
+  antilink: {
+    name: 'Anti-Link',
+    description:
+      'Automatically deletes messages containing links from non-admins in groups, with an optional warn-then-remove threshold.',
+    icon: '🔗',
+  },
+  games: {
+    name: 'Games & Fun',
+    description: 'Trivia, rock-paper-scissors, and magic 8-ball commands for anyone chatting with the bot.',
+    icon: '🎮',
+  },
+  broadcast: {
+    name: 'Broadcasts',
+    description: 'Compose a message once and send it to a list of contacts, immediately or on a schedule.',
+    icon: '📢',
   },
 };
 
@@ -86,6 +121,19 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     includeGroups: true,
   },
   notes: {},
+  welcome: {
+    welcomeEnabled: true,
+    goodbyeEnabled: true,
+    welcomeMessage: 'Welcome to {group}, {user}! 👋',
+    goodbyeMessage: '{user} left {group}. 👋',
+  },
+  antilink: {
+    kickAfterWarnings: 0,
+  },
+  games: {
+    replyInGroups: false,
+  },
+  broadcast: {},
 };
 
 export function isPluginKey(key: string): key is PluginKey {

@@ -15,6 +15,10 @@ const handlers = {
     await entry.sock.updateBlockStatus(payload.jid, 'unblock');
     return true;
   },
+  broadcast_message: async ({ payload }, entry) => {
+    await entry.sock.sendMessage(payload.jid, { text: payload.message });
+    return true;
+  },
 };
 
 async function runDueTasks(gatewayUrl) {

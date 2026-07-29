@@ -72,7 +72,15 @@ export default function SessionCard({
           href={`/dashboard/sessions/${session.id}/plugins`}
           className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface sm:py-1.5"
         >
-          <span aria-hidden>🧩</span> Plugins
+          <svg
+            aria-hidden
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="h-3.5 w-3.5 text-white"
+          >
+            <path d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7.03 7.03 0 00-1.63-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 00-.6.22L2.6 8.94a.5.5 0 00.12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 00-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.28.27.42.5.42h3.84c.23 0 .45-.14.5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.23.09.46.02.6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z" />
+          </svg>
+          Plugins
         </Link>
         {isLive ? (
           <button

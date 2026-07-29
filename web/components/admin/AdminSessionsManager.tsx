@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import StatusBadge from '@/components/StatusBadge';
 import ReconnectModal from '@/components/ReconnectModal';
 import ConfirmModal from '@/components/ConfirmModal';
+import LoadingDots from '@/components/LoadingDots';
 
 type AdminSession = {
   id: string;
@@ -77,7 +78,7 @@ export default function AdminSessionsManager({
     fetchSessions();
   }
 
-  if (loading) return <p className="text-sm text-slate-400">Loading...</p>;
+  if (loading) return <LoadingDots label="Loading sessions" />;
 
   if (sessions.length === 0) {
     return (

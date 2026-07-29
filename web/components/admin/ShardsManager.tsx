@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import ConfirmModal from '@/components/ConfirmModal';
+import LoadingDots from '@/components/LoadingDots';
 
 type GatewayShard = {
   id: string;
@@ -133,7 +134,7 @@ export default function ShardsManager() {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {loading ? (
-        <p className="text-sm text-slate-400">Loading...</p>
+        <LoadingDots label="Loading shards" />
       ) : (
         <div className="space-y-3">
           {envShards.map((env) => (

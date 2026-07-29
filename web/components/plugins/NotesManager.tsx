@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import ConfirmModal from '@/components/ConfirmModal';
+import LoadingDots from '@/components/LoadingDots';
 
 type Note = {
   id: string;
@@ -57,7 +58,7 @@ export default function NotesManager({ sessionId }: { sessionId: string }) {
       </p>
 
       {loading ? (
-        <p className="text-xs text-slate-500">Loading...</p>
+        <LoadingDots />
       ) : notes.length === 0 ? (
         <p className="text-xs text-slate-500">No notes saved yet.</p>
       ) : (

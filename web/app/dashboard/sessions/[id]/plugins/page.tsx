@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import PluginCard from '@/components/plugins/PluginCard';
+import LoadingDots from '@/components/LoadingDots';
 import AutoReplySettings, {
   type AutoReplySettingsValue,
 } from '@/components/plugins/AutoReplySettings';
@@ -77,7 +78,7 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
         {loading ? (
-          <p className="col-span-full text-sm text-slate-400">Loading...</p>
+          <LoadingDots label="Loading plugins" />
         ) : (
           plugins.map((plugin) => (
             <PluginCard

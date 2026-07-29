@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import ConfirmModal from '@/components/ConfirmModal';
+import LoadingDots from '@/components/LoadingDots';
 
 type Broadcast = {
   batchId: string;
@@ -127,7 +128,7 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
       <div className="border-t border-surface-border pt-4">
         <h3 className="mb-2 text-sm font-medium text-slate-300">Broadcasts</h3>
         {loading ? (
-          <p className="text-xs text-slate-500">Loading...</p>
+          <LoadingDots />
         ) : broadcasts.length === 0 ? (
           <p className="text-xs text-slate-500">No broadcasts yet.</p>
         ) : (

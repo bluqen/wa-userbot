@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import AddSessionModal from '@/components/AddSessionModal';
 import SessionCard, { type WaSession } from '@/components/SessionCard';
+import LoadingDots from '@/components/LoadingDots';
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<WaSession[]>([]);
@@ -59,7 +60,7 @@ export default function SessionsPage() {
       </div>
 
       {loading ? (
-        <p className="text-sm text-slate-400">Loading...</p>
+        <LoadingDots label="Loading sessions" />
       ) : sessions.length === 0 ? (
         <div className="rounded-xl border border-dashed border-surface-border p-10 text-center">
           <p className="text-slate-400">No sessions yet. Add one to get started.</p>

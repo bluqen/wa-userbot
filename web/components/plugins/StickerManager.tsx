@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import ConfirmModal from '@/components/ConfirmModal';
+import LoadingDots from '@/components/LoadingDots';
 
 type Sticker = {
   id: string;
@@ -46,7 +47,7 @@ export default function StickerManager({ sessionId }: { sessionId: string }) {
       </p>
 
       {loading ? (
-        <p className="text-xs text-slate-500">Loading...</p>
+        <LoadingDots />
       ) : stickers.length === 0 ? (
         <p className="text-xs text-slate-500">No stickers saved yet.</p>
       ) : (

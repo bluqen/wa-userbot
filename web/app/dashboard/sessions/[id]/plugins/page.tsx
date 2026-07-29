@@ -62,7 +62,10 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
 
   return (
     <div>
-      <Link href="/dashboard" className="text-sm text-slate-400 hover:text-slate-200">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border bg-surface-raised px-3 py-1.5 text-sm text-slate-300 transition hover:bg-surface hover:text-slate-100"
+      >
         &larr; Back to sessions
       </Link>
 

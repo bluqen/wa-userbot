@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import './globals.css';
+import ChatBackdrop from '@/components/ChatBackdrop';
 
 export const metadata = {
   title: 'WhatsaForge',
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-surface font-sans text-slate-100 antialiased">
+        <ChatBackdrop />
         {children}
       </body>
     </html>

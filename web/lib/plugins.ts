@@ -26,57 +26,52 @@ export const PLUGIN_KEYS: PluginKey[] = [
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
   autoreply: {
     name: 'Auto Reply',
-    description: 'Automatically reply to incoming messages with a fixed message.',
+    description: 'Reply automatically with a fixed message.',
     icon: '💬',
   },
   ai_reply: {
     name: 'AI Reply',
-    description: 'Generate AI-powered replies in a personality of your choosing.',
+    description: 'AI-powered replies in a personality of your choosing.',
     icon: '🤖',
   },
   ai_write: {
     name: 'AI Write',
-    description:
-      'Instantly fix spelling/grammar or rewrite the tone of your own outgoing messages before anyone reads the typos.',
+    description: 'Fix typos or rewrite your own messages before sending.',
     icon: '✍️',
   },
   song: {
     name: 'Song Fetcher',
-    description:
-      'Sends a royalty-free (Creative Commons) track from Jamendo when someone messages "/song <genre/mood>". Requires JAMENDO_CLIENT_ID to be configured on the plugin engine.',
+    description: 'Sends a royalty-free track via "/song <genre>".',
     icon: '🎵',
   },
   anti_delete: {
     name: 'Anti-Delete',
-    description:
-      'When someone deletes a message for everyone (text, image, video, voice note, sticker, or document), privately notifies you (in your own "Message Yourself" chat) with what it said -- never re-posted back into the original chat or group.',
+    description: 'Privately notifies you when a message gets deleted.',
     icon: '🗑️',
   },
   notes: {
     name: 'Notes',
-    description:
-      'Reply to any message -- text or media -- with "/savenote <name>" to save it, then drop it into any conversation later with "#name".',
+    description: 'Save and recall snippets with "/savenote" and "#name".',
     icon: '📝',
   },
   welcome: {
-    name: 'Welcome/Goodbye',
-    description: 'Automatically greets new group members and sends a farewell when someone leaves.',
+    name: 'Greetings',
+    description: 'Greets new members and says goodbye when they leave.',
     icon: '👋',
   },
   antilink: {
     name: 'Anti-Link',
-    description:
-      'Automatically deletes messages containing links from non-admins in groups, with an optional warn-then-remove threshold.',
+    description: 'Deletes links from non-admins in groups.',
     icon: '🔗',
   },
   games: {
-    name: 'Games & Fun',
-    description: 'Trivia, rock-paper-scissors, and magic 8-ball commands for anyone chatting with the bot.',
+    name: 'Fun',
+    description: 'Trivia, rock-paper-scissors, and 8-ball.',
     icon: '🎮',
   },
   broadcast: {
     name: 'Broadcasts',
-    description: 'Compose a message once and send it to a list of contacts, immediately or on a schedule.',
+    description: 'Send a message to a list of contacts, now or later.',
     icon: '📢',
   },
 };

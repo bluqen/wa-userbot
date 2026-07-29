@@ -70,9 +70,9 @@ export default function SessionCard({
       <div className="mt-4 flex flex-wrap gap-2">
         <Link
           href={`/dashboard/sessions/${session.id}/plugins`}
-          className="rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface sm:py-1.5"
+          className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-surface sm:py-1.5"
         >
-          Plugins
+          <span aria-hidden>🧩</span> Plugins
         </Link>
         {isLive ? (
           <button

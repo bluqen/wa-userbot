@@ -86,7 +86,7 @@ export default function SessionCard({
           <button
             onClick={handleReconnect}
             disabled={busy}
-            className="rounded-md border border-emerald-900/50 px-3 py-2 text-xs font-medium text-emerald-400 transition hover:bg-emerald-950/30 disabled:opacity-50 sm:py-1.5"
+            className="rounded-md border border-violet-900/50 px-3 py-2 text-xs font-medium text-violet-400 transition hover:bg-violet-950/30 disabled:opacity-50 sm:py-1.5"
           >
             {busy ? 'Reconnecting...' : 'Reconnect'}
           </button>

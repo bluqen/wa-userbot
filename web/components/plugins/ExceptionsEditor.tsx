@@ -56,7 +56,7 @@ export default function ExceptionsEditor({
                   value={exception.phoneNumber}
                   onChange={(e) => updateException(index, { phoneNumber: e.target.value })}
                   placeholder="Phone number, e.g. 15551234567"
-                  className="flex-1 rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-emerald-500/50 focus:ring-2"
+                  className="flex-1 rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-violet-500/50 focus:ring-2"
                 />
                 <button
                   onClick={() => removeException(index)}
@@ -94,7 +94,7 @@ export default function ExceptionsEditor({
 
       <button
         onClick={addException}
-        className="mt-2 text-xs font-medium text-emerald-400 hover:text-emerald-300"
+        className="mt-2 text-xs font-medium text-violet-400 hover:text-violet-300"
       >
         + Add exception
       </button>

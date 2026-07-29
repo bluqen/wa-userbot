@@ -69,12 +69,12 @@ export default function AddSessionModal({
 
         {status === 'connected' ? (
           <div className="space-y-4">
-            <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/30 p-4 text-sm text-emerald-300">
+            <div className="rounded-lg border border-violet-900/50 bg-violet-950/30 p-4 text-sm text-violet-300">
               Connected! This number is now live.
             </div>
             <button
               onClick={onCreated}
-              className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+              className="w-full rounded-lg bg-violet-600 py-2 text-sm font-medium text-white transition hover:bg-violet-500"
             >
               Done
             </button>
@@ -98,7 +98,7 @@ export default function AddSessionModal({
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="e.g. Business number"
-                className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+                className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
               />
             </div>
             <div>
@@ -110,14 +110,14 @@ export default function AddSessionModal({
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 placeholder="Country code + number, e.g. 15551234567"
-                className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+                className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
               />
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              className="w-full rounded-lg bg-violet-600 py-2 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
             >
               {loading ? 'Requesting code...' : 'Get pairing code'}
             </button>

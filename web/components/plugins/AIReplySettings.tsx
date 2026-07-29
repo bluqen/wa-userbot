@@ -104,7 +104,7 @@ export default function AIReplySettings({
         <select
           value={form.personalityId}
           onChange={(e) => setForm({ ...form, personalityId: e.target.value })}
-          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         >
           <option value="custom">Custom...</option>
           {GROUPS.map((group) => (
@@ -130,7 +130,7 @@ export default function AIReplySettings({
             onChange={(e) => setForm({ ...form, customPrompt: e.target.value })}
             rows={3}
             placeholder="Describe how it should talk, e.g. 'A sleepy cat who answers in short, lazy sentences.'"
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
           />
         </div>
       )}
@@ -145,7 +145,7 @@ export default function AIReplySettings({
           rows={5}
           maxLength={4000}
           placeholder="Paste FAQs, business hours, pricing, policies -- anything the bot should know to answer questions accurately, beyond just its personality."
-          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
         <p className="mt-1 text-xs text-slate-500">
           {form.knowledgeBase.length}/4000 characters. Given to the AI as reference info for every
@@ -156,7 +156,7 @@ export default function AIReplySettings({
       <div>
         <div className="mb-1.5 flex items-center justify-between">
           <label className="text-sm font-medium text-slate-300">Humanlikeness</label>
-          <span className="text-xs font-medium text-emerald-400">
+          <span className="text-xs font-medium text-violet-400">
             {closestHumanlikenessLevel(form.humanlikeness).label}
           </span>
         </div>
@@ -167,7 +167,7 @@ export default function AIReplySettings({
           step={25}
           value={form.humanlikeness}
           onChange={(e) => setForm({ ...form, humanlikeness: Number(e.target.value) })}
-          className="w-full accent-emerald-500"
+          className="w-full accent-violet-500"
         />
         <div className="mt-1 grid grid-cols-5 text-center text-[9px] text-slate-500 sm:text-[10px]">
           {HUMANLIKENESS_LEVELS.map((level, i) => (
@@ -204,7 +204,7 @@ export default function AIReplySettings({
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <label className="text-sm font-medium text-slate-300">Sticker chance</label>
-            <span className="text-xs font-medium text-emerald-400">
+            <span className="text-xs font-medium text-violet-400">
               {closestStickerChanceLevel(form.stickerChance).label}
             </span>
           </div>
@@ -215,7 +215,7 @@ export default function AIReplySettings({
             step={25}
             value={form.stickerChance}
             onChange={(e) => setForm({ ...form, stickerChance: Number(e.target.value) })}
-            className="w-full accent-emerald-500"
+            className="w-full accent-violet-500"
           />
           <div className="mt-1 grid grid-cols-5 text-center text-[9px] text-slate-500 sm:text-[10px]">
             {STICKER_CHANCE_LEVELS.map((level, i) => (
@@ -280,7 +280,7 @@ export default function AIReplySettings({
             onChange={(e) =>
               setForm({ ...form, typingDurationMs: Math.max(0, Number(e.target.value)) * 1000 })
             }
-            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
           />
         </div>
       )}
@@ -294,7 +294,7 @@ export default function AIReplySettings({
           min={0}
           value={form.cooldownMinutes}
           onChange={(e) => setForm({ ...form, cooldownMinutes: Math.max(0, Number(e.target.value)) })}
-          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
         <p className="mt-1 text-xs text-slate-500">
           0 = always reply. Otherwise, won&apos;t auto-reply to the same contact again until this
@@ -313,7 +313,7 @@ export default function AIReplySettings({
           onChange={(e) =>
             setForm({ ...form, historyLength: Math.max(0, Number(e.target.value)) })
           }
-          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
         <p className="mt-1 text-xs text-slate-500">
           How many recent messages with a contact to remember for context. 0 = no memory, each
@@ -349,7 +349,7 @@ export default function AIReplySettings({
             onChange={(e) =>
               setForm({ ...form, blockDurationHours: Math.max(0, Number(e.target.value)) })
             }
-            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
           />
           <p className="mt-1 text-xs text-slate-500">0 = block permanently.</p>
         </div>
@@ -369,7 +369,7 @@ export default function AIReplySettings({
                 <select
                   value={overridePersonalityId}
                   onChange={(e) => setOverrides({ ...overrides, personalityId: e.target.value })}
-                  className="mt-1 w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-emerald-500/50 focus:ring-2"
+                  className="mt-1 w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-violet-500/50 focus:ring-2"
                 >
                   <option value="custom">Custom...</option>
                   {GROUPS.map((group) => (
@@ -389,7 +389,7 @@ export default function AIReplySettings({
                   onChange={(e) => setOverrides({ ...overrides, customPrompt: e.target.value })}
                   rows={2}
                   placeholder="Describe how it should talk with this contact"
-                  className="w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-emerald-500/50 focus:ring-2"
+                  className="w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-violet-500/50 focus:ring-2"
                 />
               )}
               <label className="flex items-center justify-between text-xs text-slate-400">
@@ -414,7 +414,7 @@ export default function AIReplySettings({
       <button
         onClick={handleSave}
         disabled={saving}
-        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+        className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
       >
         {saving ? 'Saving...' : saved ? 'Saved!' : 'Save settings'}
       </button>

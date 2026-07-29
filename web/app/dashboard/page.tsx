@@ -52,7 +52,7 @@ export default function SessionsPage() {
         </div>
         <button
           onClick={() => setModalOpen(true)}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 sm:self-start"
+          className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500 sm:self-start"
         >
           + Add session
         </button>

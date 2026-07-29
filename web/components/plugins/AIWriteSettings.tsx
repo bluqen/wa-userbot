@@ -45,7 +45,7 @@ export default function AIWriteSettings({
         <select
           value={form.styleId}
           onChange={(e) => setForm({ ...form, styleId: e.target.value })}
-          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         >
           <option value="fix-errors">Just fix errors</option>
           <option value="custom">Custom style...</option>
@@ -79,7 +79,7 @@ export default function AIWriteSettings({
             onChange={(e) => setForm({ ...form, customStylePrompt: e.target.value })}
             rows={2}
             placeholder="e.g. 'Make it sound more confident and to the point.'"
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
           />
         </div>
       )}
@@ -93,7 +93,7 @@ export default function AIWriteSettings({
           onChange={(e) => setForm({ ...form, extraInstructions: e.target.value })}
           rows={2}
           placeholder="e.g. 'Never use emojis' or 'keep it under two sentences' -- layered on top of the style above."
-          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
       </div>
 
@@ -122,7 +122,7 @@ export default function AIWriteSettings({
           min={0}
           value={form.minLength}
           onChange={(e) => setForm({ ...form, minLength: Math.max(0, Number(e.target.value)) })}
-          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
         <p className="mt-1 text-xs text-slate-500">
           Skips short messages like &quot;ok&quot; or a single emoji, where an edit isn&apos;t
@@ -139,7 +139,7 @@ export default function AIWriteSettings({
           min={0}
           value={form.cooldownMinutes}
           onChange={(e) => setForm({ ...form, cooldownMinutes: Math.max(0, Number(e.target.value)) })}
-          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
         <p className="mt-1 text-xs text-slate-500">
           0 = every message gets a chance at editing. Otherwise, skips further edits in the same
@@ -151,7 +151,7 @@ export default function AIWriteSettings({
       <button
         onClick={handleSave}
         disabled={saving}
-        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+        className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
       >
         {saving ? 'Saving...' : saved ? 'Saved!' : 'Save settings'}
       </button>

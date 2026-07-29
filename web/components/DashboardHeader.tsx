@@ -51,11 +51,10 @@ export default function DashboardHeader({
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center gap-3 sm:gap-8">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">
-              W
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.svg" alt="" className="h-7 w-7 rounded-lg" />
             <span className="text-base font-semibold tracking-tight sm:text-lg">
-              WA Bot Console
+              WhatsaForge
             </span>
           </Link>
           <nav className="hidden gap-1 sm:flex">

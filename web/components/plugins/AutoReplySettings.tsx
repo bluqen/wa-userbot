@@ -40,7 +40,7 @@ export default function AutoReplySettings({
           value={form.message}
           onChange={(e) => setForm({ ...form, message: e.target.value })}
           rows={3}
-          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
       </div>
 
@@ -87,7 +87,7 @@ export default function AutoReplySettings({
             onChange={(e) =>
               setForm({ ...form, typingDurationMs: Math.max(0, Number(e.target.value)) * 1000 })
             }
-            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+            className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
           />
         </div>
       )}
@@ -101,7 +101,7 @@ export default function AutoReplySettings({
           min={0}
           value={form.cooldownMinutes}
           onChange={(e) => setForm({ ...form, cooldownMinutes: Math.max(0, Number(e.target.value)) })}
-          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-emerald-500/50 focus:ring-2"
+          className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
         />
         <p className="mt-1 text-xs text-slate-500">
           0 = always reply. Otherwise, won&apos;t auto-reply to the same contact again until this
@@ -121,7 +121,7 @@ export default function AutoReplySettings({
               onChange={(e) => setOverrides({ ...overrides, message: e.target.value })}
               rows={2}
               placeholder="Leave blank to use the default message above"
-              className="mt-1 w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-emerald-500/50 focus:ring-2"
+              className="mt-1 w-full rounded-md border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none ring-violet-500/50 focus:ring-2"
             />
           </div>
         )}
@@ -130,7 +130,7 @@ export default function AutoReplySettings({
       <button
         onClick={handleSave}
         disabled={saving}
-        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+        className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
       >
         {saving ? 'Saving...' : saved ? 'Saved!' : 'Save settings'}
       </button>

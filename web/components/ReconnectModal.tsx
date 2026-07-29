@@ -48,12 +48,12 @@ export default function ReconnectModal({
 
         {status === 'connected' ? (
           <div className="space-y-4">
-            <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/30 p-4 text-sm text-emerald-300">
+            <div className="rounded-lg border border-violet-900/50 bg-violet-950/30 p-4 text-sm text-violet-300">
               Reconnected! This session is live again.
             </div>
             <button
               onClick={onClose}
-              className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+              className="w-full rounded-lg bg-violet-600 py-2 text-sm font-medium text-white transition hover:bg-violet-500"
             >
               Done
             </button>

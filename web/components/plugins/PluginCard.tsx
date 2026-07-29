@@ -24,7 +24,7 @@ export default function PluginCard({
       <div
         className={`group relative flex flex-col items-center gap-2 rounded-2xl border p-4 text-center transition sm:p-5 ${
           enabled
-            ? 'border-emerald-700/50 bg-emerald-950/10 hover:bg-emerald-950/20'
+            ? 'border-violet-700/50 bg-violet-950/10 hover:bg-violet-950/20'
             : 'border-surface-border bg-surface-raised hover:bg-surface'
         }`}
       >
@@ -38,7 +38,7 @@ export default function PluginCard({
             onChange={(e) => onToggle(e.target.checked)}
             className="peer sr-only"
           />
-          <div className="h-5 w-9 rounded-full bg-surface-border transition peer-checked:bg-emerald-600" />
+          <div className="h-5 w-9 rounded-full bg-surface-border transition peer-checked:bg-violet-600" />
           <div className="absolute left-0.5 h-4 w-4 rounded-full bg-slate-300 transition peer-checked:translate-x-4 peer-checked:bg-white" />
         </label>
 
@@ -48,7 +48,7 @@ export default function PluginCard({
         >
           <span
             className={`flex h-14 w-14 items-center justify-center rounded-2xl text-3xl transition group-hover:scale-105 sm:h-16 sm:w-16 ${
-              enabled ? 'bg-emerald-600/20' : 'bg-surface'
+              enabled ? 'bg-violet-600/20' : 'bg-surface'
             }`}
           >
             {icon}

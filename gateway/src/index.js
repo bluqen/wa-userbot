@@ -1,6 +1,18 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import express from 'express';
 import cors from 'cors';
+
+// Baileys 6 downloaded media through axios (Node's http/https stack, which
+// does happy-eyeballs IPv4/IPv6 fallback). Baileys 7 uses native fetch --
+// i.e. undici -- which does NOT fall back by default: if DNS returns an
+// AAAA record first and the host can't actually route IPv6, every media
+// download dies with a bare, causeless "fetch failed". That's exactly the
+// symptom (100% of downloads, all media types, starting at the upgrade),
+// while plain messaging over the websocket kept working.
+//
+// Preferring A records makes fetch behave like the old axios path did.
+dns.setDefaultResultOrder('ipv4first');
 import { startSession, sessionStatus, logoutSession, reconnectSession } from './whatsappManager.js';
 import { fetchSessionsForGateway, describeFetchError } from './webClient.js';
 import { isSessionRegistered } from './postgresAuthState.js';

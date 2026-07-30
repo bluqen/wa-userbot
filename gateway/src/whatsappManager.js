@@ -534,7 +534,7 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
     }
     await sendCommandFeedback(sock, userId, msg, '✅', 'command');
   } catch (err) {
-    console.error(`[${userId}] media conversion (${mode}) failed:`, err.message);
+    console.error(`[${userId}] media conversion (${mode}) failed:`, describeFetchError(err));
     await sendCommandFeedback(sock, userId, msg, `Conversion failed: ${err.message}`, 'command');
   }
 }
@@ -576,7 +576,7 @@ async function handleMemeCommand(userId, sock, msg, rawArgs) {
     const memed = await addMemeText(media.buffer, topText || '', bottomText || '');
     await sock.sendMessage(msg.key.remoteJid, { image: memed }, { quoted: msg });
   } catch (err) {
-    console.error(`[${userId}] /meme failed:`, err.message);
+    console.error(`[${userId}] /meme failed:`, describeFetchError(err));
     await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't make that meme: ${err.message}` }, { quoted: msg });
   }
 }
@@ -623,7 +623,7 @@ async function handleVoiceEffectCommand(userId, sock, msg, effectName) {
       { quoted: msg },
     );
   } catch (err) {
-    console.error(`[${userId}] /${effectName} failed:`, err.message);
+    console.error(`[${userId}] /${effectName} failed:`, describeFetchError(err));
     await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't apply that effect: ${err.message}` }, { quoted: msg });
   }
 }
@@ -668,6 +668,37 @@ async function handleNoteRecall(userId, sock, msg, name, markAiSent) {
     console.error(`[${userId}] failed to send recalled note "${name}":`, err.message);
   }
   return true;
+}
+
+// Anti-delete's cache of recently-seen messages, deliberately at module
+// scope rather than per-socket: a reconnect (which happens routinely)
+// would otherwise wipe everything remembered, so any message received
+// before it could no longer be recovered -- indistinguishable from the
+// feature being broken. Message ids are globally unique, so sharing one
+// store across sessions is safe. Bounded by both a count cap and a total-
+// byte cap, since entries range from a few bytes of text to megabytes of
+// media, unlike the fixed-size per-contact caches elsewhere in this file.
+const recentMessagesStore = new Map(); // message id -> cache entry
+const MAX_RECENT_COUNT = 2000;
+const MAX_RECENT_BYTES = 50 * 1024 * 1024;
+let recentMessagesBytes = 0;
+
+function entrySize(entry) {
+  return entry.buffer ? entry.buffer.length : entry.text ? entry.text.length : 0;
+}
+
+function rememberRecentMessage(id, entry) {
+  if (!id) return;
+  recentMessagesStore.set(id, entry);
+  recentMessagesBytes += entrySize(entry);
+  while (
+    (recentMessagesStore.size > MAX_RECENT_COUNT || recentMessagesBytes > MAX_RECENT_BYTES) &&
+    recentMessagesStore.size > 0
+  ) {
+    const oldestKey = recentMessagesStore.keys().next().value;
+    recentMessagesBytes -= entrySize(recentMessagesStore.get(oldestKey));
+    recentMessagesStore.delete(oldestKey);
+  }
 }
 
 const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' });
@@ -890,10 +921,13 @@ export async function startSession(userId, phoneNumber) {
   // and a total-byte-size cap, since media entries vary from a few bytes
   // of text up to megabytes, unlike every other per-session cache in this
   // file which only ever holds small fixed-size entries.
-  const recentMessages = new Map(); // message id -> cache entry (see below)
-  const MAX_RECENT_COUNT = 2000;
-  const MAX_RECENT_BYTES = 50 * 1024 * 1024;
-  let recentMessagesBytes = 0;
+  // Deliberately reaches for the module-level store rather than declaring
+  // its own: this used to be a per-socket Map, so every reconnect silently
+  // threw away everything remembered. Anti-delete then had nothing to
+  // recover for any message received before the last reconnect, which
+  // looked exactly like the feature not working. Message ids are globally
+  // unique, so one shared store is safe.
+  const recentMessages = recentMessagesStore;
 
   // Anti-link's warning counter: group JID -> Map(participant JID -> count).
   // Only grows if kickAfterWarnings is actually configured; capped at the
@@ -901,23 +935,7 @@ export async function startSession(userId, phoneNumber) {
   // than contacts.
   const antiLinkViolations = new Map();
 
-  function entrySize(entry) {
-    return entry.buffer ? entry.buffer.length : entry.text ? entry.text.length : 0;
-  }
-
-  function rememberMessage(id, entry) {
-    if (!id) return;
-    recentMessages.set(id, entry);
-    recentMessagesBytes += entrySize(entry);
-    while (
-      (recentMessages.size > MAX_RECENT_COUNT || recentMessagesBytes > MAX_RECENT_BYTES) &&
-      recentMessages.size > 0
-    ) {
-      const oldestKey = recentMessages.keys().next().value;
-      recentMessagesBytes -= entrySize(recentMessages.get(oldestKey));
-      recentMessages.delete(oldestKey);
-    }
-  }
+  const rememberMessage = rememberRecentMessage;
 
   // Sent privately to the account's own "Message Yourself" chat rather
   // than back into the chat/group where the deletion happened -- gives the
@@ -1187,7 +1205,7 @@ export async function startSession(userId, phoneNumber) {
                 });
               }
             } catch (err) {
-              console.error(`[${userId}] anti-delete media capture failed:`, err.message);
+              console.error(`[${userId}] anti-delete media capture failed:`, describeFetchError(err));
             }
           }
         }
@@ -1418,7 +1436,7 @@ export async function startSession(userId, phoneNumber) {
               mimetype: msg.message.audioMessage.mimetype || 'audio/ogg',
             };
           } catch (err) {
-            console.error(`[${userId}] failed to download voice note:`, err.message);
+            console.error(`[${userId}] failed to download voice note:`, describeFetchError(err));
           }
         }
         // A voice note whose download failed above still has empty text --
@@ -1437,7 +1455,7 @@ export async function startSession(userId, phoneNumber) {
               mimetype: msg.message.stickerMessage.mimetype || 'image/webp',
             };
           } catch (err) {
-            console.error(`[${userId}] failed to download incoming sticker:`, err.message);
+            console.error(`[${userId}] failed to download incoming sticker:`, describeFetchError(err));
           }
         }
 

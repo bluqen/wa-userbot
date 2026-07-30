@@ -764,7 +764,15 @@ async function handleBlockContact(userId, sock, jid, blockDurationHours) {
   try {
     await sock.updateBlockStatus(jid, 'block');
   } catch (err) {
-    console.error(`[${userId}] failed to block ${jid}:`, err.message);
+    if (jid.endsWith('@lid')) {
+      console.error(
+        `[${userId}] failed to block ${jid}: still a @lid JID (no phone number resolved for this ` +
+          `contact yet) -- WhatsApp's blocklist only accepts real phone-number JIDs:`,
+        err.message,
+      );
+    } else {
+      console.error(`[${userId}] failed to block ${jid}:`, err.message);
+    }
     return;
   }
   if (blockDurationHours > 0) {
@@ -1095,8 +1103,25 @@ export async function startSession(userId, phoneNumber) {
       // "Message Yourself") do. Remove once that's root-caused.
       console.log(
         `[${userId}] TRACE upsert type=${type} fromMe=${msg.key.fromMe} remoteJid=${msg.key.remoteJid} ` +
-          `participant=${msg.key.participant || ''} messageTypes=${Object.keys(msg.message).join(',')}`,
+          `participant=${msg.key.participant || ''} senderPn=${msg.key.senderPn || ''} ` +
+          `participantPn=${msg.key.participantPn || ''} messageTypes=${Object.keys(msg.message).join(',')}`,
       );
+
+      // WhatsApp attaches the real phone-number JID directly on a @lid-
+      // addressed message's own key (sender_pn/participant_pn in the raw
+      // stanza) whenever it has one to give -- a per-message resolution
+      // that costs nothing, unlike lidToPhoneJid's other source
+      // (refreshLidMappings' onWhatsApp lookups), which only ever covers
+      // phone numbers someone bothered to configure an exception for.
+      // Learning it here means resolveRemoteJid (used for exceptions,
+      // history, and blocking) works for *any* @lid contact, not just
+      // pre-configured ones.
+      if (msg.key.senderPn && msg.key.remoteJid?.endsWith('@lid')) {
+        lidToPhoneJid.set(jidNormalizedUser(msg.key.remoteJid), jidNormalizedUser(msg.key.senderPn));
+      }
+      if (msg.key.participantPn && msg.key.participant?.endsWith('@lid')) {
+        lidToPhoneJid.set(jidNormalizedUser(msg.key.participant), jidNormalizedUser(msg.key.participantPn));
+      }
 
       // "Delete for everyone" arrives as a normal message: a protocolMessage
       // telling this client to stop showing an earlier message by id, not
@@ -1507,10 +1532,17 @@ export async function startSession(userId, phoneNumber) {
         }
 
         if (block) {
-          // Real WhatsApp addressing JID -- not resolvedFrom, which is
-          // only the LID-resolved phone-number JID used for plugin-engine
-          // config/exception lookups.
-          await handleBlockContact(userId, sock, msg.key.remoteJid, blockDurationHours);
+          // Unlike sending (which addresses whatever JID form the chat
+          // actually uses), WhatsApp's blocklist protocol only accepts a
+          // real phone-number JID -- passing a @lid JID gets rejected
+          // outright ("bad-request"), confirmed against Baileys' own
+          // updateBlockStatus, which forwards whatever jid it's given
+          // as-is with no LID resolution of its own. resolvedFrom is the
+          // best phone-JID guess available (see the senderPn/participantPn
+          // learning above); if this contact was never resolved, it falls
+          // back to the raw JID and the block attempt still fails the
+          // same way as before, just with a clearer log below.
+          await handleBlockContact(userId, sock, resolvedFrom, blockDurationHours);
         }
       } catch (err) {
         console.error(`[${userId}] plugin dispatch failed:`, err.message);

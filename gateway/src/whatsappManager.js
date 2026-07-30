@@ -1090,6 +1090,14 @@ export async function startSession(userId, phoneNumber) {
     for (const msg of messages) {
       if (!msg.message) continue;
 
+      // Temporary trace -- pinpointing why some chats never seem to reach
+      // any of the fromMe command handlers below while others (e.g.
+      // "Message Yourself") do. Remove once that's root-caused.
+      console.log(
+        `[${userId}] TRACE upsert type=${type} fromMe=${msg.key.fromMe} remoteJid=${msg.key.remoteJid} ` +
+          `participant=${msg.key.participant || ''} messageTypes=${Object.keys(msg.message).join(',')}`,
+      );
+
       // "Delete for everyone" arrives as a normal message: a protocolMessage
       // telling this client to stop showing an earlier message by id, not
       // an actual un-delivery of anything -- the content already arrived

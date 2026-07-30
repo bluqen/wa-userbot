@@ -561,7 +561,12 @@ export async function startSession(userId, phoneNumber) {
         return existing;
       }
       sessions.delete(userId);
-      await existing.sock.end(new Error('superseded by a new pairing attempt')).catch(() => {});
+      // sock.end() is synchronous and returns nothing (not a promise) --
+      // it just tears down the websocket and fires its own 'close' event.
+      // Awaiting/`.catch()`-ing it here was throwing "Cannot read properties
+      // of undefined (reading 'catch')" on every stale-pairing-attempt
+      // replacement, which crashed this whole startSession() call.
+      existing.sock.end(new Error('superseded by a new pairing attempt'));
     }
   }
 

@@ -778,36 +778,27 @@ function scheduleReconnect(userId, phoneNumber, attempt) {
 // not the LID-resolved one used for plugin-engine lookups. A nonzero
 // blockDurationHours also schedules an automatic unblock via the generic
 // scheduled-task system (see scheduler.js) -- 0 means block permanently.
-// sock.sendMessage can hang indefinitely rather than rejecting -- if
-// WhatsApp never answers an internal query (e.g. fetching a contact's
-// pre-keys to establish a Signal session), the returned promise simply
-// never settles. That produces exactly the worst failure mode: nothing
-// sent, nothing thrown, nothing logged, and the per-message loop stuck
-// forever on the await. Racing a timeout turns that into a visible,
-// recoverable error, and logging both sides makes a hang distinguishable
-// from a rejection (a "start" with no matching "ok"/"failed" IS the hang).
-const SEND_TIMEOUT_MS = 20000;
-
+// Purely diagnostic: logs each send's start and outcome, changing nothing
+// about how the send itself behaves. A "start" line with no matching
+// "ok"/"failed" identifies a send that never settled at all (sock.
+// sendMessage can hang rather than reject, e.g. if WhatsApp never answers
+// an internal query) -- which is otherwise indistinguishable from the code
+// never running.
+//
+// Deliberately no timeout here: Promise.race can't cancel the underlying
+// send, so a slow-but-successful send would be reported as failed while
+// still being delivered, and would skip the caller's markAiSent() -- the
+// guard that stops AI Write from reprocessing the bot's own message. The
+// logging alone answers the question without that risk.
 async function sendTracked(sock, userId, jid, content, options, label) {
   console.log(`[${userId}] send:${label} start -> ${jid}`);
-  let timer;
   try {
-    const sent = await Promise.race([
-      sock.sendMessage(jid, content, options),
-      new Promise((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`sendMessage did not settle within ${SEND_TIMEOUT_MS}ms`)),
-          SEND_TIMEOUT_MS,
-        );
-      }),
-    ]);
+    const sent = await sock.sendMessage(jid, content, options);
     console.log(`[${userId}] send:${label} ok id=${sent?.key?.id || 'none'}`);
     return sent;
   } catch (err) {
     console.error(`[${userId}] send:${label} failed -> ${jid}:`, err.message);
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

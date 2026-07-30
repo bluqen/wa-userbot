@@ -1098,15 +1098,6 @@ export async function startSession(userId, phoneNumber) {
     for (const msg of messages) {
       if (!msg.message) continue;
 
-      // Temporary trace -- pinpointing why some chats never seem to reach
-      // any of the fromMe command handlers below while others (e.g.
-      // "Message Yourself") do. Remove once that's root-caused.
-      console.log(
-        `[${userId}] TRACE upsert type=${type} fromMe=${msg.key.fromMe} remoteJid=${msg.key.remoteJid} ` +
-          `participant=${msg.key.participant || ''} senderPn=${msg.key.senderPn || ''} ` +
-          `participantPn=${msg.key.participantPn || ''} messageTypes=${Object.keys(msg.message).join(',')}`,
-      );
-
       // WhatsApp attaches the real phone-number JID directly on a @lid-
       // addressed message's own key (sender_pn/participant_pn in the raw
       // stanza) whenever it has one to give -- a per-message resolution

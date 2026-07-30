@@ -9,6 +9,12 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      # Baileys 7 requires Node >= 20 and enforces it via a preinstall
+      # check, which fails the build outright on anything older. Pinned
+      # explicitly rather than relying on package.json's ">=20" range,
+      # which isn't a version Render can resolve directly.
+      - key: NODE_VERSION
+        value: "20"
       - key: PLUGIN_ENGINE_URL
         sync: false # paste wa-bot-plugins' https://...onrender.com URL after it's deployed
       - key: DATABASE_URL

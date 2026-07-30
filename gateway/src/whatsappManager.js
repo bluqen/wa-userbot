@@ -49,6 +49,18 @@ const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 // whatever media type a message contains, instead of each feature quietly
 // re-downloading the same file (a voice note, in particular, would
 // otherwise get downloaded twice: once for anti-delete, once to transcribe).
+// Baileys 6 always downloaded media from mmg.whatsapp.net. Baileys 7
+// changed this to "honour a non-default host carried by the proto"
+// (downloadContentFromMessage: `opts.host ?? extractHost(url)`), so it now
+// takes the host out of the message's own `url` field. Some messages carry
+// hosts that don't resolve publicly at all -- a.whatsapp.net and
+// media.whatsapp.net both fail DNS outright, verified directly, while
+// mmg.whatsapp.net resolves fine -- which is why every download started
+// dying with "fetch failed: getaddrinfo ENOTFOUND a.whatsapp.net" after
+// the upgrade. `opts.host` takes precedence, so pinning it back to the
+// real media host restores the v6 behaviour.
+const MEDIA_DOWNLOAD_OPTS = { host: 'mmg.whatsapp.net' };
+
 const MEDIA_MESSAGE_TYPES = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'];
 const MAX_MEDIA_DOWNLOAD_BYTES = 8 * 1024 * 1024; // covers virtually all images/voice notes/short videos/documents
 
@@ -63,7 +75,7 @@ async function downloadAnyMedia(msg, mediaType, mediaObj) {
   const fileLength = Number(mediaObj.fileLength) || 0;
   if (fileLength > MAX_MEDIA_DOWNLOAD_BYTES) return null;
 
-  const buffer = await downloadMediaMessage(msg, 'buffer', {});
+  const buffer = await downloadMediaMessage(msg, 'buffer', MEDIA_DOWNLOAD_OPTS);
   return {
     mediaType,
     buffer,
@@ -285,7 +297,7 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
       },
       message: contextInfo.quotedMessage,
     };
-    const buffer = await downloadMediaMessage(synthetic, 'buffer', {});
+    const buffer = await downloadMediaMessage(synthetic, 'buffer', MEDIA_DOWNLOAD_OPTS);
     console.log(`[${userId}] downloaded sticker "${tag}": ${buffer.length} bytes`);
     await saveSticker({
       sessionId: userId,
@@ -1433,7 +1445,7 @@ export async function startSession(userId, phoneNumber) {
             const buffer =
               cachedMedia?.mediaType === 'audioMessage'
                 ? cachedMedia.buffer
-                : await downloadMediaMessage(msg, 'buffer', {});
+                : await downloadMediaMessage(msg, 'buffer', MEDIA_DOWNLOAD_OPTS);
             audio = {
               data: buffer.toString('base64'),
               mimetype: msg.message.audioMessage.mimetype || 'audio/ogg',
@@ -1452,7 +1464,7 @@ export async function startSession(userId, phoneNumber) {
             const buffer =
               cachedMedia?.mediaType === 'stickerMessage'
                 ? cachedMedia.buffer
-                : await downloadMediaMessage(msg, 'buffer', {});
+                : await downloadMediaMessage(msg, 'buffer', MEDIA_DOWNLOAD_OPTS);
             sticker = {
               data: buffer.toString('base64'),
               mimetype: msg.message.stickerMessage.mimetype || 'image/webp',

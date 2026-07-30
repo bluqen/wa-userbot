@@ -82,10 +82,14 @@ class GamesPlugin(Plugin):
         if config.get("enabled") is False:
             return False
 
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
-            return False
-
+        # Group-gating is deliberately *not* checked here -- see handle()
+        # below. Returning False from match() when blocked-for-groups
+        # makes the message silently fall through to whatever plugin runs
+        # next (typically AI Reply), which then hallucinates an unrelated
+        # chatty response to the literal text "/8ball ...". That looks
+        # exactly like the command being broken, when it's actually just
+        # off for groups. Claiming the command syntax here and explaining
+        # why in handle() instead avoids that.
         text = ctx.text.strip()
         if EIGHT_BALL_COMMAND.match(text) or RPS_COMMAND.match(text) or TRIVIA_COMMAND.match(text):
             return True
@@ -96,6 +100,11 @@ class GamesPlugin(Plugin):
     def handle(self, ctx: MessageContext) -> Optional[Reply]:
         text = ctx.text.strip()
         key = (ctx.user_id, ctx.from_jid)
+
+        config = resolve_settings(self.config, ctx.from_jid)
+        is_group = ctx.from_jid.endswith("@g.us")
+        if is_group and not config.get("replyInGroups", False):
+            return Reply(text="Games aren't turned on for group chats -- ask the bot owner to enable it.")
 
         if EIGHT_BALL_COMMAND.match(text):
             return Reply(text=f"\U0001F3B1 {random.choice(EIGHT_BALL_ANSWERS)}")

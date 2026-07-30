@@ -36,16 +36,25 @@ class ImaginePlugin(Plugin):
         if config.get("enabled") is False:
             return False
 
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
-            return False
-
+        # Group-gating is deliberately *not* checked here -- see handle()
+        # below. If it were, a blocked "/imagine" in a group would return
+        # False from match() and silently fall through to whatever plugin
+        # runs next (typically AI Reply), which would then hallucinate an
+        # unrelated chatty response to the literal text "/imagine ...".
+        # That looked exactly like the command being broken, when it was
+        # actually just off for groups. Claiming the command syntax here
+        # and explaining why in handle() instead avoids that.
         return bool(IMAGINE_COMMAND.match(ctx.text.strip()))
 
     def handle(self, ctx: MessageContext) -> Optional[Reply]:
         match = IMAGINE_COMMAND.match(ctx.text.strip())
         if not match:
             return None
+
+        config = resolve_settings(self.config, ctx.from_jid)
+        is_group = ctx.from_jid.endswith("@g.us")
+        if is_group and not config.get("replyInGroups", False):
+            return Reply(text="/imagine isn't turned on for group chats -- ask the bot owner to enable it.")
 
         prompt = (match.group(1) or "").strip()
         if not prompt:

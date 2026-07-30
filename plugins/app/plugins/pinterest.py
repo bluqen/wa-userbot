@@ -37,19 +37,28 @@ class PinterestPlugin(Plugin):
         if config.get("enabled") is False:
             return False
 
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
-            return False
-
-        if not PEXELS_API_KEY:
-            return False
-
+        # Group-gating and the API-key check are deliberately *not* done
+        # here -- see handle() below. Returning False from match() for
+        # either makes the message silently fall through to whatever
+        # plugin runs next (typically AI Reply), which then hallucinates
+        # an unrelated chatty response to the literal text "/pinterest
+        # ...". That looks exactly like the command being broken, when
+        # it's actually just blocked or unconfigured. Claiming the command
+        # syntax here and explaining why in handle() instead avoids that.
         return bool(PINTEREST_COMMAND.match(ctx.text.strip()))
 
     def handle(self, ctx: MessageContext) -> Optional[Reply]:
         match = PINTEREST_COMMAND.match(ctx.text.strip())
         if not match:
             return None
+
+        config = resolve_settings(self.config, ctx.from_jid)
+        is_group = ctx.from_jid.endswith("@g.us")
+        if is_group and not config.get("replyInGroups", False):
+            return Reply(text="/pinterest isn't turned on for group chats -- ask the bot owner to enable it.")
+
+        if not PEXELS_API_KEY:
+            return Reply(text="/pinterest isn't set up yet -- the bot owner needs to add a Pexels API key.")
 
         query = (match.group(1) or "").strip()[:MAX_QUERY_LENGTH]
         if not query:

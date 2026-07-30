@@ -44,19 +44,28 @@ class SongPlugin(Plugin):
         if config.get("enabled") is False:
             return False
 
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
-            return False
-
-        if not JAMENDO_CLIENT_ID:
-            return False
-
+        # Group-gating and the API-key check are deliberately *not* done
+        # here -- see handle() below. Returning False from match() for
+        # either makes the message silently fall through to whatever
+        # plugin runs next (typically AI Reply), which then hallucinates
+        # an unrelated chatty response to the literal text "/song ...".
+        # That looks exactly like the command being broken, when it's
+        # actually just blocked or unconfigured. Claiming the command
+        # syntax here and explaining why in handle() instead avoids that.
         return bool(SONG_COMMAND.match(ctx.text.strip()))
 
     def handle(self, ctx: MessageContext) -> Optional[Reply]:
         match = SONG_COMMAND.match(ctx.text.strip())
         if not match:
             return None
+
+        config = resolve_settings(self.config, ctx.from_jid)
+        is_group = ctx.from_jid.endswith("@g.us")
+        if is_group and not config.get("replyInGroups", False):
+            return Reply(text="/song isn't turned on for group chats -- ask the bot owner to enable it.")
+
+        if not JAMENDO_CLIENT_ID:
+            return Reply(text="/song isn't set up yet -- the bot owner needs to add a Jamendo client ID.")
 
         query = (match.group(1) or "").strip()
         if not query:

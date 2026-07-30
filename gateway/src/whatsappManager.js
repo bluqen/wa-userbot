@@ -263,17 +263,11 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
   const quotedSticker = contextInfo?.quotedMessage?.stickerMessage;
 
   if (!tag) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: 'Usage: /savesticker <tag> (reply to a sticker)', edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, 'Usage: /savesticker <tag> (reply to a sticker)', 'command');
     return;
   }
   if (!quotedSticker) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: `Reply directly to a sticker message with /savesticker ${tag}`, edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, `Reply directly to a sticker message with /savesticker ${tag}`, 'command');
     return;
   }
 
@@ -299,14 +293,11 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
       data: buffer.toString('base64'),
       mimetype: quotedSticker.mimetype || 'image/webp',
     });
-    await sock.sendMessage(msg.key.remoteJid, { text: `Saved sticker as "${tag}"`, edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, `Saved sticker as "${tag}"`, 'command');
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] failed to save sticker "${tag}":`, detail);
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: `Failed to save sticker: ${detail}`, edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, `Failed to save sticker: ${detail}`, 'command');
   }
 }
 
@@ -321,17 +312,11 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
   const quoted = contextInfo?.quotedMessage;
 
   if (!name) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: 'Usage: /savenote <name> (reply to any message)', edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, 'Usage: /savenote <name> (reply to any message)', 'command');
     return;
   }
   if (!quoted) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: `Reply directly to a message with /savenote ${name}`, edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, `Reply directly to a message with /savenote ${name}`, 'command');
     return;
   }
 
@@ -353,10 +338,7 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
       };
       const media = await downloadAnyMedia(synthetic, mediaType, quoted[mediaType]);
       if (!media) {
-        await sock.sendMessage(
-          msg.key.remoteJid,
-          { text: 'That file is too large to save as a note (max 8MB).', edit: msg.key },
-        );
+        await sendCommandFeedback(sock, userId, msg, 'That file is too large to save as a note (max 8MB).', 'command');
         return;
       }
       await saveNote({
@@ -372,20 +354,10 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
     } else if (quotedText) {
       await saveNote({ sessionId: userId, name, kind: 'text', text: quotedText });
     } else {
-      await sock.sendMessage(
-        msg.key.remoteJid,
-        { text: 'Nothing to save from that message.', edit: msg.key },
-      );
+      await sendCommandFeedback(sock, userId, msg, 'Nothing to save from that message.', 'command');
       return;
     }
-    await sendTracked(
-      sock,
-      userId,
-      msg.key.remoteJid,
-      { text: `Saved note "${name}"`, edit: msg.key },
-      undefined,
-      'savenote-confirm',
-    );
+    await sendCommandFeedback(sock, userId, msg, `Saved note "${name}"`, 'savenote-confirm');
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] failed to save note "${name}":`, detail);
@@ -393,14 +365,7 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
     // as likely to fail as the one that just did, and an uncaught error
     // here would escape the caller entirely.
     try {
-      await sendTracked(
-        sock,
-        userId,
-        msg.key.remoteJid,
-        { text: `Failed to save note: ${detail}`, edit: msg.key },
-        undefined,
-        'savenote-error',
-      );
+      await sendCommandFeedback(sock, userId, msg, `Failed to save note: ${detail}`, 'savenote-error');
     } catch {
       // already logged by sendTracked
     }
@@ -414,17 +379,11 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
 async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
   const name = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
   if (!name) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: 'Usage: /addbroadcast <name> (send inside the group)', edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, 'Usage: /addbroadcast <name> (send inside the group)', 'command');
     return;
   }
   if (!msg.key.remoteJid.endsWith('@g.us')) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: '/addbroadcast only works inside a group.', edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, '/addbroadcast only works inside a group.', 'command');
     return;
   }
 
@@ -438,17 +397,11 @@ async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
       // display name for the dashboard's group picker.
     }
     await saveBroadcastGroup({ sessionId: userId, name, jid: msg.key.remoteJid, groupName });
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: `This group is now tagged for broadcasts as "${name}"`, edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, `This group is now tagged for broadcasts as "${name}"`, 'command');
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] failed to save broadcast group "${name}":`, detail);
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: `Failed to tag group: ${detail}`, edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, `Failed to tag group: ${detail}`, 'command');
   }
 }
 
@@ -457,7 +410,7 @@ async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
 // text per person) but still pings everyone, same as a real @all mention.
 async function handleTagAllCommand(userId, sock, msg, rawMessage) {
   if (!msg.key.remoteJid.endsWith('@g.us')) {
-    await sock.sendMessage(msg.key.remoteJid, { text: '/tagall only works inside a group.', edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, '/tagall only works inside a group.', 'command');
     return;
   }
   try {
@@ -467,7 +420,7 @@ async function handleTagAllCommand(userId, sock, msg, rawMessage) {
     await sock.sendMessage(msg.key.remoteJid, { text, mentions: participantJids });
   } catch (err) {
     console.error(`[${userId}] /tagall failed:`, err.message);
-    await sock.sendMessage(msg.key.remoteJid, { text: `Failed to tag everyone: ${err.message}`, edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, `Failed to tag everyone: ${err.message}`, 'command');
   }
 }
 
@@ -477,10 +430,7 @@ async function handlePollCommand(userId, sock, msg, rawPoll) {
   const parts = rawPoll.split('|').map((p) => p.trim()).filter(Boolean);
   const [question, ...options] = parts;
   if (!question || options.length < 2) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: 'Usage: /poll question | option1 | option2 | ...(up to 12 options)', edit: msg.key },
-    );
+    await sendCommandFeedback(sock, userId, msg, 'Usage: /poll question | option1 | option2 | ...(up to 12 options)', 'command');
     return;
   }
   try {
@@ -489,7 +439,7 @@ async function handlePollCommand(userId, sock, msg, rawPoll) {
     });
   } catch (err) {
     console.error(`[${userId}] /poll failed:`, err.message);
-    await sock.sendMessage(msg.key.remoteJid, { text: `Failed to create poll: ${err.message}`, edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, `Failed to create poll: ${err.message}`, 'command');
   }
 }
 
@@ -507,23 +457,17 @@ async function handleAskCommand(userId, sock, msg, rawQuestion) {
   const question = quotedText && typed ? `Regarding this message: "${quotedText}"\n\n${typed}` : quotedText || typed;
 
   if (!question) {
-    await sock.sendMessage(msg.key.remoteJid, {
-      text: 'Usage: !ai <question>, or reply to a message with !ai to ask about it.',
-      edit: msg.key,
-    });
+    await sendCommandFeedback(sock, userId, msg, 'Usage: !ai <question>, or reply to a message with !ai to ask about it.', 'command');
     return;
   }
 
   try {
     const answer = await askAI({ userId, question });
-    await sock.sendMessage(msg.key.remoteJid, {
-      text: answer || 'No AI provider configured, or that request failed -- try again?',
-      edit: msg.key,
-    });
+    await sendCommandFeedback(sock, userId, msg, answer || 'No AI provider configured, or that request failed -- try again?', 'command');
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] !ai request failed:`, detail);
-    await sock.sendMessage(msg.key.remoteJid, { text: `AI request failed: ${detail}`, edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, `AI request failed: ${detail}`, 'command');
   }
 }
 
@@ -543,7 +487,7 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
       img: 'Reply to a sticker with /img to convert it to an image.',
       gif: 'Reply to a sticker with /gif to convert it to a video.',
     }[mode];
-    await sock.sendMessage(msg.key.remoteJid, { text: usage, edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, usage, 'command');
     return;
   }
 
@@ -555,19 +499,13 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
   try {
     const media = await downloadAnyMedia(synthetic, mediaType, quoted[mediaType]);
     if (!media) {
-      await sock.sendMessage(msg.key.remoteJid, {
-        text: 'That file is too large to convert (max 8MB).',
-        edit: msg.key,
-      });
+      await sendCommandFeedback(sock, userId, msg, 'That file is too large to convert (max 8MB).', 'command');
       return;
     }
 
     if (mode === 'sticker') {
       if (mediaType !== 'imageMessage' && mediaType !== 'videoMessage') {
-        await sock.sendMessage(msg.key.remoteJid, {
-          text: 'Reply to an image or video/gif with /sticker to make a sticker.',
-          edit: msg.key,
-        });
+        await sendCommandFeedback(sock, userId, msg, 'Reply to an image or video/gif with /sticker to make a sticker.', 'command');
         return;
       }
       const webp =
@@ -577,30 +515,27 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
       await sock.sendMessage(msg.key.remoteJid, { sticker: webp });
     } else if (mode === 'img') {
       if (mediaType !== 'stickerMessage') {
-        await sock.sendMessage(msg.key.remoteJid, { text: 'Reply to a sticker with /img.', edit: msg.key });
+        await sendCommandFeedback(sock, userId, msg, 'Reply to a sticker with /img.', 'command');
         return;
       }
       const png = await stickerToImage(media.buffer);
       await sock.sendMessage(msg.key.remoteJid, { image: png });
     } else if (mode === 'gif') {
       if (mediaType !== 'stickerMessage') {
-        await sock.sendMessage(msg.key.remoteJid, { text: 'Reply to a sticker with /gif.', edit: msg.key });
+        await sendCommandFeedback(sock, userId, msg, 'Reply to a sticker with /gif.', 'command');
         return;
       }
       const mp4 = await stickerToVideo(media.buffer);
       if (!mp4) {
-        await sock.sendMessage(msg.key.remoteJid, {
-          text: "That's a static sticker -- there's no motion to turn into a video.",
-          edit: msg.key,
-        });
+        await sendCommandFeedback(sock, userId, msg, "That's a static sticker -- there's no motion to turn into a video.", 'command');
         return;
       }
       await sock.sendMessage(msg.key.remoteJid, { video: mp4, gifPlayback: true });
     }
-    await sock.sendMessage(msg.key.remoteJid, { text: '✅', edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, '✅', 'command');
   } catch (err) {
     console.error(`[${userId}] media conversion (${mode}) failed:`, err.message);
-    await sock.sendMessage(msg.key.remoteJid, { text: `Conversion failed: ${err.message}`, edit: msg.key });
+    await sendCommandFeedback(sock, userId, msg, `Conversion failed: ${err.message}`, 'command');
   }
 }
 
@@ -711,6 +646,7 @@ async function handleNoteRecall(userId, sock, msg, name, markAiSent) {
   if (!note) return false;
 
   try {
+    const targetJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
     if (note.kind === 'media' && note.data) {
       const content = buildOutgoingMediaContent({
         mediaType: note.mediaType,
@@ -721,11 +657,11 @@ async function handleNoteRecall(userId, sock, msg, name, markAiSent) {
         ptt: false,
       });
       if (content) {
-        const sent = await sock.sendMessage(msg.key.remoteJid, content);
+        const sent = await sendTracked(sock, userId, targetJid, content, undefined, 'note-recall-media');
         markAiSent(sent?.key?.id);
       }
     } else {
-      const sent = await sock.sendMessage(msg.key.remoteJid, { text: note.text });
+      const sent = await sendTracked(sock, userId, targetJid, { text: note.text }, undefined, 'note-recall');
       markAiSent(sent?.key?.id);
     }
   } catch (err) {
@@ -800,6 +736,39 @@ async function sendTracked(sock, userId, jid, content, options, label) {
     console.error(`[${userId}] send:${label} failed -> ${jid}:`, err.message);
     throw err;
   }
+}
+
+// WhatsApp has migrated some (not all) contacts to "@lid" addressing -- a
+// privacy-preserving identifier used in place of the phone number. Baileys
+// 7 keeps a LID<->phone-number mapping populated from the server, so ask it
+// for the real phone JID before sending. Falls back to the original JID
+// when no mapping exists, so this can only ever improve on the current
+// behaviour, never regress a chat that already works.
+async function resolveSendJid(sock, userId, jid) {
+  if (!jid || !jid.endsWith('@lid')) return jid;
+  try {
+    const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid);
+    if (pn) return jidNormalizedUser(pn);
+    console.warn(`[${userId}] no phone number mapped for ${jid} -- sending to the @lid JID as-is`);
+  } catch (err) {
+    console.error(`[${userId}] failed to resolve phone number for ${jid}:`, err.message);
+  }
+  return jid;
+}
+
+// Command feedback ("Saved note ...") is normally delivered by editing the
+// command message in place, which keeps the chat clean. That edit
+// references a message key in the original thread; in an @lid-addressed
+// chat it can be silently dropped, leaving the user with no feedback at
+// all. Send a normal quoted reply there instead -- slightly less tidy, but
+// it actually arrives. Non-@lid chats keep the existing edit-in-place
+// behaviour untouched.
+async function sendCommandFeedback(sock, userId, msg, text, label) {
+  if (!msg.key.remoteJid?.endsWith('@lid')) {
+    return sendTracked(sock, userId, msg.key.remoteJid, { text, edit: msg.key }, undefined, label);
+  }
+  const targetJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
+  return sendTracked(sock, userId, targetJid, { text }, { quoted: msg }, `${label}-lid`);
 }
 
 async function handleBlockContact(userId, sock, jid, blockDurationHours) {
@@ -1428,6 +1397,12 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
+        // Where every reply below actually gets sent. For an @lid chat
+        // this is the mapped phone-number JID when one is known (see
+        // resolveSendJid); for everything else it's msg.key.remoteJid
+        // unchanged. Resolved once here rather than per-send.
+        const sendJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
+
         let audio;
         if (isVoiceNote) {
           try {
@@ -1502,7 +1477,7 @@ export async function startSession(userId, phoneNumber) {
 
           for (let i = 0; i < messagesToSend.length; i++) {
             if (showTyping) {
-              await sock.sendPresenceUpdate('composing', msg.key.remoteJid);
+              await sock.sendPresenceUpdate('composing', sendJid);
               await new Promise((resolve) => setTimeout(resolve, typingDelayMs || 1500));
             }
 
@@ -1510,7 +1485,7 @@ export async function startSession(userId, phoneNumber) {
             const sent = await sendTracked(
               sock,
               userId,
-              msg.key.remoteJid,
+              sendJid,
               { text: messagesToSend[i] },
               sendOptions,
               'ai-reply',
@@ -1524,7 +1499,7 @@ export async function startSession(userId, phoneNumber) {
             markAiSent(sent?.key?.id);
 
             if (showTyping) {
-              await sock.sendPresenceUpdate('paused', msg.key.remoteJid);
+              await sock.sendPresenceUpdate('paused', sendJid);
             }
 
             if (i < messagesToSend.length - 1) {
@@ -1537,7 +1512,7 @@ export async function startSession(userId, phoneNumber) {
           try {
             const buffer = await fetchSticker(userId, stickerTag);
             if (buffer) {
-              const sentSticker = await sock.sendMessage(msg.key.remoteJid, { sticker: buffer });
+              const sentSticker = await sendTracked(sock, userId, sendJid, { sticker: buffer }, undefined, 'ai-sticker');
               markAiSent(sentSticker?.key?.id);
             } else {
               console.error(`[${userId}] sticker "${stickerTag}" not found (deleted since?)`);
@@ -1552,11 +1527,18 @@ export async function startSession(userId, phoneNumber) {
           // renders as a normal playable attachment, not the voice-message
           // bubble a ptt:true voice note gets.
           try {
-            await sock.sendMessage(msg.key.remoteJid, {
-              audio: Buffer.from(replyAudio.data, 'base64'),
-              mimetype: replyAudio.mimetype || 'audio/mpeg',
-              ptt: false,
-            });
+            await sendTracked(
+              sock,
+              userId,
+              sendJid,
+              {
+                audio: Buffer.from(replyAudio.data, 'base64'),
+                mimetype: replyAudio.mimetype || 'audio/mpeg',
+                ptt: false,
+              },
+              undefined,
+              'ai-audio',
+            );
           } catch (err) {
             console.error(`[${userId}] failed to send audio reply:`, err.message);
           }
@@ -1568,10 +1550,17 @@ export async function startSession(userId, phoneNumber) {
           // gap so they don't all land in the same instant.
           for (let i = 0; i < replyImages.length; i++) {
             try {
-              const sentImage = await sock.sendMessage(msg.key.remoteJid, {
-                image: Buffer.from(replyImages[i].data, 'base64'),
-                mimetype: replyImages[i].mimetype || 'image/jpeg',
-              });
+              const sentImage = await sendTracked(
+                sock,
+                userId,
+                sendJid,
+                {
+                  image: Buffer.from(replyImages[i].data, 'base64'),
+                  mimetype: replyImages[i].mimetype || 'image/jpeg',
+                },
+                undefined,
+                'ai-image',
+              );
               markAiSent(sentImage?.key?.id);
             } catch (err) {
               console.error(`[${userId}] failed to send image reply:`, err.message);

@@ -81,6 +81,21 @@ export async function hasStoredCreds(sessionId) {
   return Boolean(creds);
 }
 
+// Baileys writes a `creds` row almost immediately after socket creation --
+// noise keys, signed pre-keys, etc. -- well before the user has actually
+// entered a pairing code on their phone. So hasStoredCreds() alone can't
+// tell "this session finished linking at some point" apart from "someone
+// started (and abandoned) a pairing attempt". Only `creds.registered`
+// flips true once WhatsApp actually confirms the device link. The
+// reconnect watchdog needs this distinction so it doesn't keep silently
+// re-requesting pairing codes forever for sessions nobody ever finished
+// linking.
+export async function isSessionRegistered(sessionId) {
+  await ensureAuthTable();
+  const creds = await readData(sessionId, 'creds');
+  return Boolean(creds?.registered);
+}
+
 // Used by logoutSession() and reconnectSession()'s last-resort fallback --
 // wipes everything stored for this session (equivalent to the old
 // fs.rmSync(sessionDir) when auth state lived in local files).

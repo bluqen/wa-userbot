@@ -25,6 +25,18 @@ export async function fetchSessionsForGateway(gatewayUrl) {
   return data.sessions || [];
 }
 
+// Tells the web app WhatsApp itself force-logged-out this session (device
+// removed from the phone's Linked Devices list), so it drops out of
+// fetchSessionsForGateway()'s reconnect-watchdog query permanently instead
+// of being silently retried every 2 minutes forever.
+export async function markSessionLoggedOut(sessionId) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/sessions/${sessionId}/logout`, {
+    method: 'POST',
+    headers: { 'x-internal-secret': INTERNAL_API_SECRET },
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+}
+
 // Generic, reusable persisted scheduler -- see web/prisma/schema.prisma's
 // ScheduledTask model and gateway/src/scheduler.js. `type` + `payload` are
 // deliberately untyped here; each task type's shape is only meaningful to

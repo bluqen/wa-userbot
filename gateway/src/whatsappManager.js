@@ -19,6 +19,7 @@ import {
   saveNote,
   fetchNote,
   saveBroadcastGroup,
+  markSessionLoggedOut,
   describeFetchError,
 } from './webClient.js';
 
@@ -829,7 +830,17 @@ export async function startSession(userId, phoneNumber) {
       sessions.delete(userId);
       resolvePairingSettled();
 
-      if (!loggedOut) {
+      if (loggedOut) {
+        // WhatsApp itself removed this device (unlinked from the phone's
+        // Linked Devices list) -- this is permanent, not a transient drop.
+        // Tell the web app so this session stops being "known" to the
+        // reconnect watchdog; otherwise it gets retried every 2 minutes
+        // forever, hitting WhatsApp's login endpoint with automated
+        // connection attempts nobody asked for.
+        markSessionLoggedOut(userId).catch((err) =>
+          console.error(`[${userId}] failed to record logout:`, describeFetchError(err)),
+        );
+      } else {
         startSession(userId, phoneNumber).catch((err) => {
           console.error(`[${userId}] reconnect failed:`, err.message);
           scheduleReconnect(userId, phoneNumber, 1);

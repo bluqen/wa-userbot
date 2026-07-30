@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { startSession, sessionStatus, logoutSession, reconnectSession } from './whatsappManager.js';
 import { fetchSessionsForGateway, describeFetchError } from './webClient.js';
+import { isSessionRegistered } from './postgresAuthState.js';
 import { startScheduler } from './scheduler.js';
 
 // This process holds every paired session on this shard at once -- Baileys
@@ -125,9 +126,31 @@ async function reconnectKnownSessions() {
     `Reconnect watchdog: found ${sessions.length} known session(s) for PUBLIC_URL=${PUBLIC_URL}`,
   );
 
+  let skipped = 0;
   for (const s of sessions) {
+    // A session only ever needs *reconnecting* if it actually finished
+    // linking at some point (creds.registered). Baileys writes a `creds`
+    // row almost immediately on socket creation -- long before a human has
+    // entered a pairing code -- so a session someone started pairing and
+    // then abandoned (or one WhatsApp has since force-logged-out) still
+    // shows up here forever otherwise. Silently retrying those every 2
+    // minutes does nothing useful and repeatedly hits WhatsApp's login
+    // endpoint with automated, human-less connection attempts for the same
+    // numbers -- exactly the pattern its anti-abuse system watches for, and
+    // a plausible reason *new* pairing attempts from this same IP start
+    // getting rejected too. Only a human explicitly re-pairing (the
+    // /pair route) should attempt those.
+    if (!(await isSessionRegistered(s.id))) {
+      skipped += 1;
+      continue;
+    }
     reconnectSession(s.id, s.phoneNumber).catch((err) =>
       console.error(`[${s.id}] reconnect watchdog failed:`, err.message),
+    );
+  }
+  if (skipped > 0) {
+    console.log(
+      `Reconnect watchdog: skipped ${skipped} session(s) that never finished pairing (left for a human /pair attempt)`,
     );
   }
 }

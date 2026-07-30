@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   // Signal session for that device and produces "Waiting for this message"
   // for the account's contacts. Block it at creation time instead.
   const duplicate = await prisma.waSession.findFirst({
-    where: { phoneNumber: digitsOnly, status: { not: 'disconnected' } },
+    where: { phoneNumber: digitsOnly, status: { notIn: ['disconnected', 'logged_out'] } },
   });
   if (duplicate) {
     return NextResponse.json(

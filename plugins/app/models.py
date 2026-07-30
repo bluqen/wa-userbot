@@ -8,6 +8,11 @@ class AudioPayload(BaseModel):
     mimetype: str = "audio/ogg"
 
 
+class ImagePayload(BaseModel):
+    data: str  # base64-encoded raw bytes
+    mimetype: str = "image/jpeg"
+
+
 class IncomingMessage(BaseModel):
     user_id: str
     from_jid: str = Field(alias="from")
@@ -34,7 +39,20 @@ class ReplyResponse(BaseModel):
     # Reuses AudioPayload (same {data, mimetype} shape as the incoming
     # voice-note case above) since the wire format is identical either way.
     audio: Optional[AudioPayload] = None
+    # Real image file(s) to send alongside `reply` -- see pinterest.py and
+    # imagine.py. A list (not a single image) since /pinterest sends a
+    # small handful of results at once.
+    images: Optional[List[ImagePayload]] = None
 
 
 class RewriteResponse(BaseModel):
     rewritten: Optional[str] = None
+
+
+class AskRequest(BaseModel):
+    user_id: str
+    question: str
+
+
+class AskResponse(BaseModel):
+    answer: Optional[str] = None

@@ -27,6 +27,12 @@ import PollsSettings from '@/components/plugins/PollsSettings';
 import StatusViewSettings from '@/components/plugins/StatusViewSettings';
 import SudoSettings, { type SudoSettingsValue } from '@/components/plugins/SudoSettings';
 import LeadsSettings, { type LeadsSettingsValue } from '@/components/plugins/LeadsSettings';
+import ImagineSettings, { type ImagineSettingsValue } from '@/components/plugins/ImagineSettings';
+import PinterestSettings, {
+  type PinterestSettingsValue,
+} from '@/components/plugins/PinterestSettings';
+import AiAskSettings from '@/components/plugins/AiAskSettings';
+import MediaConvertSettings from '@/components/plugins/MediaConvertSettings';
 
 type PluginConfig = {
   key: string;
@@ -161,6 +167,20 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}
+              {plugin.key === 'imagine' && (
+                <ImagineSettings
+                  value={plugin.settings as ImagineSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'pinterest' && (
+                <PinterestSettings
+                  value={plugin.settings as PinterestSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'ai_ask' && <AiAskSettings />}
+              {plugin.key === 'media_convert' && <MediaConvertSettings />}
             </PluginCard>
           ))
         )}

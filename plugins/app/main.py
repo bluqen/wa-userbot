@@ -13,7 +13,15 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from fastapi import FastAPI
 
 from . import llm
-from .models import AudioPayload, IncomingMessage, ReplyResponse, RewriteResponse
+from .models import (
+    AskRequest,
+    AskResponse,
+    AudioPayload,
+    ImagePayload,
+    IncomingMessage,
+    ReplyResponse,
+    RewriteResponse,
+)
 from .plugin_base import MessageContext
 from .plugin_loader import build_plugins
 from .plugins.ai_write import AIWritePlugin
@@ -141,11 +149,36 @@ async def handle_message(msg: IncomingMessage):
                         audio=AudioPayload(data=reply.audio.data, mimetype=reply.audio.mimetype)
                         if reply.audio
                         else None,
+                        images=[ImagePayload(data=i.data, mimetype=i.mimetype) for i in reply.images]
+                        if reply.images
+                        else None,
                     )
         except Exception as exc:  # a broken plugin shouldn't take the whole engine down
             print(f"[plugin:{plugin.name}] error: {exc}")
 
     return ReplyResponse(reply=None)
+
+
+@app.post("/ask", response_model=AskResponse)
+async def handle_ask(req: AskRequest):
+    """Backs the owner-only "!ai" command (see whatsappManager.js) -- a
+    one-shot question-and-answer, not the ongoing conversational AI Reply
+    flow. No per-session settings to fetch: the gateway already checked
+    the ai_ask plugin is enabled for this session before ever calling
+    this, same as it does for /tagall and /poll.
+    """
+    if not llm.has_provider():
+        return AskResponse(answer=None)
+
+    answer = llm.generate(
+        "You are a helpful, direct assistant answering a one-off question inside a WhatsApp "
+        "chat. Keep the answer concise -- a few sentences at most unless the question genuinely "
+        "requires more -- and skip preamble like \"Sure, here's...\".",
+        req.question,
+        max_tokens=400,
+        temperature=0.5,
+    )
+    return AskResponse(answer=answer)
 
 
 @app.post("/rewrite", response_model=RewriteResponse)

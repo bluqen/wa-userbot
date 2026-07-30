@@ -36,7 +36,27 @@ export async function forwardMessage({ userId, from, text, audio }) {
     parts: Array.isArray(data.parts) ? data.parts : null,
     stickerTag: data.sticker_tag || null,
     audio: data.audio || null,
+    images: Array.isArray(data.images) ? data.images : null,
   };
+}
+
+// Backs the owner-only "!ai" command -- a one-shot question, not the
+// ongoing AI Reply conversation flow. Returns null if no AI provider is
+// configured or the request otherwise failed to produce an answer.
+export async function askAI({ userId, question }) {
+  const res = await fetch(`${PLUGIN_ENGINE_URL}/ask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, question }),
+    signal: AbortSignal.timeout(20000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`plugin engine responded ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.answer || null;
 }
 
 // Sends one of the userbot owner's own outgoing messages to the plugin

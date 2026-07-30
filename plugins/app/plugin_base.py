@@ -36,6 +36,16 @@ class AudioAttachment:
 
 
 @dataclass
+class ImageAttachment:
+    """A real image file to send alongside a reply (see pinterest.py,
+    imagine.py) -- always sent as a normal image message, never a sticker.
+    """
+
+    data: str  # base64-encoded raw bytes
+    mimetype: str = "image/jpeg"
+
+
+@dataclass
 class Reply:
     # None means "nothing worth sending" -- used for a block-only reply,
     # where the only thing that happened is `block` below.
@@ -62,6 +72,9 @@ class Reply:
     sticker_tag: Optional[str] = None
     # A real audio file to send alongside `text` -- see song.py.
     audio: Optional[AudioAttachment] = None
+    # Real image file(s) to send alongside `text` -- see pinterest.py and
+    # imagine.py. A list since /pinterest sends a small handful at once.
+    images: Optional[List[ImageAttachment]] = None
 
 
 def resolve_settings(config: dict, from_jid: str) -> dict:

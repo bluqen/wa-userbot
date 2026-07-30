@@ -10,7 +10,7 @@ import {
   proto,
 } from '@whiskeysockets/baileys';
 import { usePostgresAuthState, hasStoredCreds, clearAuthState } from './postgresAuthState.js';
-import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers } from './pluginClient.js';
+import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers, askAI } from './pluginClient.js';
 import {
   createScheduledTask,
   saveSticker,
@@ -22,12 +22,17 @@ import {
   markSessionLoggedOut,
   describeFetchError,
 } from './webClient.js';
+import { imageToSticker, mediaToAnimatedSticker, stickerToImage, stickerToVideo } from './mediaConvert.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
 const SAVE_NOTE_COMMAND = /^\/savenote\s+(\S+)/i;
 const ADD_BROADCAST_COMMAND = /^\/addbroadcast\s+(\S+)/i;
 const TAG_ALL_COMMAND = /^\/tagall(?:\s+([\s\S]+))?$/i;
 const POLL_COMMAND = /^\/poll\s+([\s\S]+)/i;
+const AI_ASK_COMMAND = /^!ai(?:\s+([\s\S]+))?$/i;
+const STICKER_CONVERT_COMMAND = /^\/sticker\b/i;
+const IMG_CONVERT_COMMAND = /^\/img\b/i;
+const GIF_CONVERT_COMMAND = /^\/gif\b/i;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "/savenote", and voice-note
@@ -112,6 +117,16 @@ function derivePollsConfig(plugins) {
 
 function deriveStatusViewConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'statusview');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveAiAskConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'ai_ask');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveMediaConvertConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'media_convert');
   return { enabled: !!(entry && entry.enabled) };
 }
 
@@ -437,6 +452,117 @@ async function handlePollCommand(userId, sock, msg, rawPoll) {
   } catch (err) {
     console.error(`[${userId}] /poll failed:`, err.message);
     await sock.sendMessage(msg.key.remoteJid, { text: `Failed to create poll: ${err.message}`, edit: msg.key });
+  }
+}
+
+// One-shot AI question, triggered by "!ai <question>" or by replying to
+// any message with just "!ai" (asks about the quoted message). Distinct
+// from the ongoing AI Reply conversation flow -- this is a single ask,
+// answered by editing the command message itself in place, same idiom as
+// every other owner-only command.
+async function handleAskCommand(userId, sock, msg, rawQuestion) {
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  const quoted = contextInfo?.quotedMessage;
+  const quotedText = quoted ? quoted.conversation || quoted.extendedTextMessage?.text || '' : '';
+
+  const typed = (rawQuestion || '').trim();
+  const question = quotedText && typed ? `Regarding this message: "${quotedText}"\n\n${typed}` : quotedText || typed;
+
+  if (!question) {
+    await sock.sendMessage(msg.key.remoteJid, {
+      text: 'Usage: !ai <question>, or reply to a message with !ai to ask about it.',
+      edit: msg.key,
+    });
+    return;
+  }
+
+  try {
+    const answer = await askAI({ userId, question });
+    await sock.sendMessage(msg.key.remoteJid, {
+      text: answer || 'No AI provider configured, or that request failed -- try again?',
+      edit: msg.key,
+    });
+  } catch (err) {
+    const detail = describeFetchError(err);
+    console.error(`[${userId}] !ai request failed:`, detail);
+    await sock.sendMessage(msg.key.remoteJid, { text: `AI request failed: ${detail}`, edit: msg.key });
+  }
+}
+
+// Converts whatever media the owner quote-replies to: an image or
+// video/gif into a sticker ("/sticker"), a sticker back into a plain
+// image ("/img"), or an animated sticker into a normal video ("/gif").
+// Same synthetic-quoted-message-wrapper trick as /savesticker/savenote --
+// downloadMediaMessage only needs something shaped like a real message.
+async function handleMediaConvertCommand(userId, sock, msg, mode) {
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  const quoted = contextInfo?.quotedMessage;
+  const mediaType = quoted && detectMediaType(quoted);
+
+  if (!quoted || !mediaType) {
+    const usage = {
+      sticker: 'Reply to an image or video/gif with /sticker to make a sticker.',
+      img: 'Reply to a sticker with /img to convert it to an image.',
+      gif: 'Reply to a sticker with /gif to convert it to a video.',
+    }[mode];
+    await sock.sendMessage(msg.key.remoteJid, { text: usage, edit: msg.key });
+    return;
+  }
+
+  const synthetic = {
+    key: { remoteJid: contextInfo.remoteJid || msg.key.remoteJid, id: contextInfo.stanzaId, fromMe: false },
+    message: quoted,
+  };
+
+  try {
+    const media = await downloadAnyMedia(synthetic, mediaType, quoted[mediaType]);
+    if (!media) {
+      await sock.sendMessage(msg.key.remoteJid, {
+        text: 'That file is too large to convert (max 8MB).',
+        edit: msg.key,
+      });
+      return;
+    }
+
+    if (mode === 'sticker') {
+      if (mediaType !== 'imageMessage' && mediaType !== 'videoMessage') {
+        await sock.sendMessage(msg.key.remoteJid, {
+          text: 'Reply to an image or video/gif with /sticker to make a sticker.',
+          edit: msg.key,
+        });
+        return;
+      }
+      const webp =
+        mediaType === 'imageMessage'
+          ? await imageToSticker(media.buffer)
+          : await mediaToAnimatedSticker(media.buffer);
+      await sock.sendMessage(msg.key.remoteJid, { sticker: webp });
+    } else if (mode === 'img') {
+      if (mediaType !== 'stickerMessage') {
+        await sock.sendMessage(msg.key.remoteJid, { text: 'Reply to a sticker with /img.', edit: msg.key });
+        return;
+      }
+      const png = await stickerToImage(media.buffer);
+      await sock.sendMessage(msg.key.remoteJid, { image: png });
+    } else if (mode === 'gif') {
+      if (mediaType !== 'stickerMessage') {
+        await sock.sendMessage(msg.key.remoteJid, { text: 'Reply to a sticker with /gif.', edit: msg.key });
+        return;
+      }
+      const mp4 = await stickerToVideo(media.buffer);
+      if (!mp4) {
+        await sock.sendMessage(msg.key.remoteJid, {
+          text: "That's a static sticker -- there's no motion to turn into a video.",
+          edit: msg.key,
+        });
+        return;
+      }
+      await sock.sendMessage(msg.key.remoteJid, { video: mp4, gifPlayback: true });
+    }
+    await sock.sendMessage(msg.key.remoteJid, { text: '✅', edit: msg.key });
+  } catch (err) {
+    console.error(`[${userId}] media conversion (${mode}) failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: `Conversion failed: ${err.message}`, edit: msg.key });
   }
 }
 
@@ -1037,6 +1163,24 @@ export async function startSession(userId, phoneNumber) {
           }
         }
 
+        const aiAskMatch = text.match(AI_ASK_COMMAND);
+        if (aiAskMatch) {
+          const aiAsk = deriveAiAskConfig(await refreshPluginConfigs());
+          if (aiAsk.enabled) {
+            await handleAskCommand(userId, sock, msg, aiAskMatch[1]);
+            continue;
+          }
+        }
+
+        if (STICKER_CONVERT_COMMAND.test(text) || IMG_CONVERT_COMMAND.test(text) || GIF_CONVERT_COMMAND.test(text)) {
+          const mediaConvert = deriveMediaConvertConfig(await refreshPluginConfigs());
+          if (mediaConvert.enabled) {
+            const mode = STICKER_CONVERT_COMMAND.test(text) ? 'sticker' : IMG_CONVERT_COMMAND.test(text) ? 'img' : 'gif';
+            await handleMediaConvertCommand(userId, sock, msg, mode);
+            continue;
+          }
+        }
+
         // A bare "#name" anywhere in an owner-sent message recalls a saved
         // note into this same chat -- but only if it actually matches one;
         // otherwise this falls through to ai_write below like normal, since
@@ -1099,6 +1243,7 @@ export async function startSession(userId, phoneNumber) {
           parts,
           stickerTag,
           audio: replyAudio,
+          images: replyImages,
         } = await forwardMessage({ userId, from: resolvedFrom, text, audio });
 
         if (reply) {
@@ -1177,6 +1322,26 @@ export async function startSession(userId, phoneNumber) {
             });
           } catch (err) {
             console.error(`[${userId}] failed to send audio reply:`, err.message);
+          }
+        }
+
+        if (Array.isArray(replyImages) && replyImages.length > 0) {
+          // A handful of image results (see pinterest.py, imagine.py) --
+          // sent as separate messages in sequence, with a brief human-like
+          // gap so they don't all land in the same instant.
+          for (let i = 0; i < replyImages.length; i++) {
+            try {
+              const sentImage = await sock.sendMessage(msg.key.remoteJid, {
+                image: Buffer.from(replyImages[i].data, 'base64'),
+                mimetype: replyImages[i].mimetype || 'image/jpeg',
+              });
+              markAiSent(sentImage?.key?.id);
+            } catch (err) {
+              console.error(`[${userId}] failed to send image reply:`, err.message);
+            }
+            if (i < replyImages.length - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 400 + Math.random() * 600));
+            }
           }
         }
 

@@ -13,7 +13,11 @@ export type PluginKey =
   | 'polls'
   | 'statusview'
   | 'sudo'
-  | 'leads';
+  | 'leads'
+  | 'imagine'
+  | 'pinterest'
+  | 'ai_ask'
+  | 'media_convert';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -31,6 +35,10 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'statusview',
   'sudo',
   'leads',
+  'imagine',
+  'pinterest',
+  'ai_ask',
+  'media_convert',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -109,6 +117,26 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'Quietly logs names, needs, and budgets from your chats.',
     icon: '📇',
   },
+  imagine: {
+    name: 'Imagine',
+    description: 'Generates an AI image from a prompt via "/imagine".',
+    icon: '🪄',
+  },
+  pinterest: {
+    name: 'Pinterest',
+    description: 'Fetches a few images for a search term via "/pinterest".',
+    icon: '📌',
+  },
+  ai_ask: {
+    name: 'AI Ask',
+    description: 'One-off AI answer by replying "!ai" to any message.',
+    icon: '💡',
+  },
+  media_convert: {
+    name: 'Sticker Maker',
+    description: 'Converts between images, gifs, and stickers.',
+    icon: '🔄',
+  },
 };
 
 export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
@@ -173,6 +201,14 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   leads: {
     cooldownMinutes: 30,
   },
+  imagine: {
+    replyInGroups: false,
+  },
+  pinterest: {
+    replyInGroups: false,
+  },
+  ai_ask: {},
+  media_convert: {},
 };
 
 export function isPluginKey(key: string): key is PluginKey {

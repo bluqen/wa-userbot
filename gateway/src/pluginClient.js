@@ -5,12 +5,15 @@ const PLUGIN_ENGINE_URL = process.env.PLUGIN_ENGINE_URL || 'http://localhost:800
 // instructions (or null reply if no plugin matched). `audio`, when given
 // (a voice note WhatsApp couldn't offer any text for), carries the raw
 // bytes as base64 -- the plugin engine transcribes it and treats the
-// result exactly like a typed message from then on.
-export async function forwardMessage({ userId, from, text, audio }) {
+// result exactly like a typed message from then on. `sticker`, when given
+// (an incoming sticker with no caption), similarly carries raw bytes as
+// base64 -- ai_reply.py reacts to the image directly instead of needing
+// text (see its use of incoming_sticker_bytes).
+export async function forwardMessage({ userId, from, text, audio, sticker }) {
   const res = await fetch(`${PLUGIN_ENGINE_URL}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, from, text, audio }),
+    body: JSON.stringify({ user_id: userId, from, text, audio, sticker }),
     // A voice note means real transcription work, and a "/song" request
     // (see song.py) means fetching and downloading a multi-MB file from
     // Jamendo, both on top of the usual plugin dispatch -- either can

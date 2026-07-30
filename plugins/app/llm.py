@@ -1,3 +1,4 @@
+import base64
 import os
 from typing import List, Optional
 
@@ -168,4 +169,52 @@ def _generate_gemini(
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as exc:
         print(f"[llm] Gemini request failed: {exc}")
+        return None
+
+
+def generate_vision(
+    system_prompt: str,
+    user_message: str,
+    image_bytes: bytes,
+    mimetype: str,
+    history: Optional[List[dict]] = None,
+    max_tokens: int = 200,
+    temperature: float = 0.9,
+) -> Optional[str]:
+    """Like generate(), but the user turn includes an image (see ai_reply.py
+    reacting to an incoming sticker). Only Gemini's API supports multimodal
+    input among the providers wired up here -- Groq's chat completions are
+    text-only -- so this has no Groq fallback and simply returns None if
+    Gemini isn't configured, letting the caller fall back to a text-only
+    reply instead of going quiet.
+    """
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        contents = []
+        for turn in history or []:
+            role = "model" if turn.get("role") == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": turn.get("text", "")}]})
+
+        parts = []
+        if user_message:
+            parts.append({"text": user_message})
+        parts.append({"inline_data": {"mime_type": mimetype, "data": base64.b64encode(image_bytes).decode()}})
+        contents.append({"role": "user", "parts": parts})
+
+        with httpx.Client(timeout=20.0) as client:
+            res = client.post(
+                GEMINI_URL,
+                params={"key": GEMINI_API_KEY},
+                json={
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
+                    "contents": contents,
+                    "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
+                },
+            )
+            res.raise_for_status()
+            data = res.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as exc:
+        print(f"[llm] Gemini vision request failed: {exc}")
         return None

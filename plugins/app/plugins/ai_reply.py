@@ -209,6 +209,9 @@ class AIReplyPlugin(Plugin):
         if config.get("enabled") is False:
             return False
 
+        if ctx.incoming_sticker_bytes and config.get("replyToStickers", True) is False:
+            return False
+
         is_group = ctx.from_jid.endswith("@g.us")
         if is_group and not config.get("replyInGroups", False):
             return False
@@ -287,9 +290,40 @@ class AIReplyPlugin(Plugin):
         history_length = int(config.get("historyLength", 10))
         history = ctx.history[-history_length:] if history_length > 0 else []
 
-        text = llm.generate(
-            system_prompt, ctx.text, history=history, max_tokens=_max_reply_tokens(humanlikeness)
-        )
+        if ctx.incoming_sticker_bytes:
+            vision_prompt = system_prompt + (
+                "\n\nThe other person just sent a sticker with no caption -- react to the "
+                "sticker image itself (what it shows, its mood or humor) briefly and "
+                "naturally, fully in character. Don't mention that it's technically a "
+                "sticker file."
+            )
+            text = llm.generate_vision(
+                vision_prompt,
+                "",
+                ctx.incoming_sticker_bytes,
+                ctx.incoming_sticker_mimetype,
+                history=history,
+                max_tokens=_max_reply_tokens(humanlikeness),
+            )
+            if not text:
+                # No vision-capable provider configured (Gemini specifically --
+                # Groq's chat API is text-only), or the vision call failed.
+                # Fall back to a generic, non-vision reaction rather than
+                # staying silent for the whole message.
+                text = llm.generate(
+                    system_prompt
+                    + "\n\nThe other person just sent you a sticker with no caption. You "
+                    "can't actually see what it shows, so just react briefly and naturally "
+                    "to receiving a sticker in general, without pretending to know its "
+                    "content.",
+                    "(sent a sticker)",
+                    history=history,
+                    max_tokens=_max_reply_tokens(humanlikeness),
+                )
+        else:
+            text = llm.generate(
+                system_prompt, ctx.text, history=history, max_tokens=_max_reply_tokens(humanlikeness)
+            )
         if not text:
             return None
 

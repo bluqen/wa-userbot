@@ -1,6 +1,7 @@
 import asyncio
 import base64
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -89,9 +90,25 @@ async def handle_message(msg: IncomingMessage):
         except Exception as exc:
             print(f"[session:{msg.user_id}] voice note transcription failed: {exc}")
 
-    print(f"[debug] incoming message from_jid={msg.from_jid!r} text={text!r} voice={is_voice}")
+    # A sticker with no caption also arrives with no text at all -- unlike
+    # a voice note, there's nothing to transcribe into text, so this stays
+    # empty and ai_reply.py reacts to the raw image itself (see its use of
+    # incoming_sticker_bytes) rather than every plugin treating it as a
+    # typed message.
+    incoming_sticker_bytes: Optional[bytes] = None
+    incoming_sticker_mimetype = "image/webp"
+    is_sticker = False
+    if not text and msg.sticker:
+        try:
+            incoming_sticker_bytes = base64.b64decode(msg.sticker.data)
+            incoming_sticker_mimetype = msg.sticker.mimetype
+            is_sticker = True
+        except Exception as exc:
+            print(f"[session:{msg.user_id}] failed to decode incoming sticker: {exc}")
 
-    if not text:
+    print(f"[debug] incoming message from_jid={msg.from_jid!r} text={text!r} voice={is_voice} sticker={is_sticker}")
+
+    if not text and not is_sticker:
         return ReplyResponse(reply=None)
 
     ctx = MessageContext(
@@ -101,6 +118,8 @@ async def handle_message(msg: IncomingMessage):
         history=history,
         sticker_tags=sticker_tags,
         is_voice=is_voice,
+        incoming_sticker_bytes=incoming_sticker_bytes,
+        incoming_sticker_mimetype=incoming_sticker_mimetype,
     )
 
     # Record the incoming message regardless of whether anything replies to
@@ -112,8 +131,10 @@ async def handle_message(msg: IncomingMessage):
     # same as before, just no longer serialized in front of the reply.
     # Uses the resolved `text` (the transcript, for a voice note) so future
     # AI Reply context actually has something to work with instead of an
-    # empty turn.
-    asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", text))
+    # empty turn. A sticker has no text to save at all, so this is skipped
+    # entirely rather than saving an empty turn.
+    if text:
+        asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", text))
 
     # Independent of any plugin's own cooldown setting: if this contact has
     # been sent an unusual number of auto-replies in the last minute, stop.

@@ -1084,7 +1084,12 @@ export async function startSession(userId, phoneNumber) {
       // (non-fromMe) case matters here -- there's nothing sensible for
       // ai_write to "fix" about a voice note the owner sent themself.
       const isVoiceNote = msg.message.audioMessage?.ptt === true;
-      if (!text && !(isVoiceNote && !msg.key.fromMe)) continue;
+      // A sticker someone else sent has no text either, but AI Reply can
+      // react to it directly (see ai_reply.py's incoming_sticker_bytes) --
+      // only ever for stickers from someone else, not the owner's own
+      // sticker sends, which are handled separately by /savesticker.
+      const isIncomingSticker = !!msg.message.stickerMessage && !msg.key.fromMe;
+      if (!text && !(isVoiceNote && !msg.key.fromMe) && !isIncomingSticker) continue;
 
       // Sudo: a trusted number who isn't the account owner can still use
       // /tagall and /poll (only those two -- not savesticker/savenote/
@@ -1232,6 +1237,22 @@ export async function startSession(userId, phoneNumber) {
         // forwardMessage/the plugin engine already treat that as nothing to
         // reply to, same as any other message with nothing usable in it.
 
+        let sticker;
+        if (isIncomingSticker) {
+          try {
+            const buffer =
+              cachedMedia?.mediaType === 'stickerMessage'
+                ? cachedMedia.buffer
+                : await downloadMediaMessage(msg, 'buffer', {});
+            sticker = {
+              data: buffer.toString('base64'),
+              mimetype: msg.message.stickerMessage.mimetype || 'image/webp',
+            };
+          } catch (err) {
+            console.error(`[${userId}] failed to download incoming sticker:`, err.message);
+          }
+        }
+
         const {
           reply,
           showTyping,
@@ -1244,7 +1265,7 @@ export async function startSession(userId, phoneNumber) {
           stickerTag,
           audio: replyAudio,
           images: replyImages,
-        } = await forwardMessage({ userId, from: resolvedFrom, text, audio });
+        } = await forwardMessage({ userId, from: resolvedFrom, text, audio, sticker });
 
         if (reply) {
           // Waited once, before anything visible happens (typing indicator

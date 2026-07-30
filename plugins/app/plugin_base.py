@@ -21,6 +21,11 @@ class MessageContext:
     # occasional transcription mistakes (see ai_reply.py) instead of
     # treating a mis-heard word as a real typo.
     is_voice: bool = False
+    # Raw bytes of an incoming sticker with no caption -- see ai_reply.py,
+    # which reacts to it via Gemini's vision input when this is set (None
+    # for every ordinary text/voice message).
+    incoming_sticker_bytes: Optional[bytes] = None
+    incoming_sticker_mimetype: str = "image/webp"
 
 
 @dataclass

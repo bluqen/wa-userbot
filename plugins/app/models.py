@@ -21,6 +21,10 @@ class IncomingMessage(BaseModel):
     # main.py's /message handler, which transcribes it via Groq Whisper
     # and treats the result exactly like typed text from then on.
     audio: Optional[AudioPayload] = None
+    # Present only for an incoming sticker with no caption -- see main.py,
+    # which lets ai_reply.py react to it via Gemini's vision input instead
+    # of requiring text.
+    sticker: Optional[ImagePayload] = None
 
     model_config = {"populate_by_name": True}
 

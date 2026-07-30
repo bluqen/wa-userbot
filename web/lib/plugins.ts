@@ -162,6 +162,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     humanlikeness: 0,
     useSticker: true,
     stickerChance: 0,
+    replyToStickers: true,
     exceptions: [],
   },
   ai_write: {

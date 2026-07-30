@@ -19,6 +19,7 @@ export type AIReplySettingsValue = {
   humanlikeness: number;
   useSticker: boolean;
   stickerChance: number;
+  replyToStickers: boolean;
   exceptions: Exception[];
 };
 
@@ -234,6 +235,23 @@ export default function AIReplySettings({
           </p>
         </div>
       )}
+
+      <label className="flex items-center justify-between gap-4 text-sm">
+        <span>
+          React to incoming stickers
+          <span className="block text-xs text-slate-500">
+            When someone sends a sticker with no caption, the AI reacts to it directly (needs a
+            Gemini key configured for real image understanding -- otherwise it still replies, just
+            without actually seeing the sticker).
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={form.replyToStickers}
+          onChange={(e) => setForm({ ...form, replyToStickers: e.target.checked })}
+          className="h-4 w-4 shrink-0"
+        />
+      </label>
 
       <StickerManager sessionId={sessionId} />
 

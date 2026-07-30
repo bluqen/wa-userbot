@@ -155,8 +155,19 @@ async function reconnectKnownSessions() {
   }
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`WhatsApp gateway listening on http://localhost:${PORT}`);
+  // Which code is actually running. Without this, "I deployed but nothing
+  // changed" is indistinguishable from "the deploy didn't pick up the new
+  // code" -- and telling those two apart by guesswork wastes a lot of time.
+  try {
+    const { createRequire } = await import('module');
+    const require = createRequire(import.meta.url);
+    const baileysVersion = require('@whiskeysockets/baileys/package.json').version;
+    console.log(`Build: node=${process.version} baileys=${baileysVersion}`);
+  } catch (err) {
+    console.error('Build: failed to read baileys version:', err.message);
+  }
   reconnectKnownSessions();
   setInterval(reconnectKnownSessions, RECONNECT_WATCHDOG_INTERVAL_MS);
   startScheduler(PUBLIC_URL);

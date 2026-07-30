@@ -378,14 +378,32 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
       );
       return;
     }
-    await sock.sendMessage(msg.key.remoteJid, { text: `Saved note "${name}"`, edit: msg.key });
+    await sendTracked(
+      sock,
+      userId,
+      msg.key.remoteJid,
+      { text: `Saved note "${name}"`, edit: msg.key },
+      undefined,
+      'savenote-confirm',
+    );
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] failed to save note "${name}":`, detail);
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: `Failed to save note: ${detail}`, edit: msg.key },
-    );
+    // Reporting the failure must not itself throw -- this send is exactly
+    // as likely to fail as the one that just did, and an uncaught error
+    // here would escape the caller entirely.
+    try {
+      await sendTracked(
+        sock,
+        userId,
+        msg.key.remoteJid,
+        { text: `Failed to save note: ${detail}`, edit: msg.key },
+        undefined,
+        'savenote-error',
+      );
+    } catch {
+      // already logged by sendTracked
+    }
   }
 }
 
@@ -760,6 +778,39 @@ function scheduleReconnect(userId, phoneNumber, attempt) {
 // not the LID-resolved one used for plugin-engine lookups. A nonzero
 // blockDurationHours also schedules an automatic unblock via the generic
 // scheduled-task system (see scheduler.js) -- 0 means block permanently.
+// sock.sendMessage can hang indefinitely rather than rejecting -- if
+// WhatsApp never answers an internal query (e.g. fetching a contact's
+// pre-keys to establish a Signal session), the returned promise simply
+// never settles. That produces exactly the worst failure mode: nothing
+// sent, nothing thrown, nothing logged, and the per-message loop stuck
+// forever on the await. Racing a timeout turns that into a visible,
+// recoverable error, and logging both sides makes a hang distinguishable
+// from a rejection (a "start" with no matching "ok"/"failed" IS the hang).
+const SEND_TIMEOUT_MS = 20000;
+
+async function sendTracked(sock, userId, jid, content, options, label) {
+  console.log(`[${userId}] send:${label} start -> ${jid}`);
+  let timer;
+  try {
+    const sent = await Promise.race([
+      sock.sendMessage(jid, content, options),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`sendMessage did not settle within ${SEND_TIMEOUT_MS}ms`)),
+          SEND_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    console.log(`[${userId}] send:${label} ok id=${sent?.key?.id || 'none'}`);
+    return sent;
+  } catch (err) {
+    console.error(`[${userId}] send:${label} failed -> ${jid}:`, err.message);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handleBlockContact(userId, sock, jid, blockDurationHours) {
   try {
     await sock.updateBlockStatus(jid, 'block');
@@ -1465,10 +1516,13 @@ export async function startSession(userId, phoneNumber) {
             }
 
             const sendOptions = i === 0 && quote ? { quoted: msg } : undefined;
-            const sent = await sock.sendMessage(
+            const sent = await sendTracked(
+              sock,
+              userId,
               msg.key.remoteJid,
               { text: messagesToSend[i] },
               sendOptions,
+              'ai-reply',
             );
             if (sent?.key?.id && sent.message) {
               sentMessages.set(sent.key.id, sent.message);

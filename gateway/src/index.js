@@ -13,7 +13,14 @@ import cors from 'cors';
 //
 // Preferring A records makes fetch behave like the old axios path did.
 dns.setDefaultResultOrder('ipv4first');
-import { startSession, sessionStatus, logoutSession, reconnectSession } from './whatsappManager.js';
+import {
+  startSession,
+  sessionStatus,
+  logoutSession,
+  reconnectSession,
+  listBlockedContacts,
+  unblockContact,
+} from './whatsappManager.js';
 import { fetchSessionsForGateway, describeFetchError } from './webClient.js';
 import { isSessionRegistered } from './postgresAuthState.js';
 import { startScheduler } from './scheduler.js';
@@ -90,6 +97,31 @@ app.post('/session/:userId/reconnect', async (req, res) => {
   } catch (err) {
     console.error(`[${userId}] failed to reconnect session:`, err.message);
     res.status(500).json({ error: 'failed to reconnect session' });
+  }
+});
+
+// A blocked contact silently swallows every message sent to them (the
+// server acks it and returns an id, but never delivers), which looks
+// exactly like the bot ignoring that one chat. These two let you see the
+// account's blocklist and undo it without touching the phone.
+app.get('/session/:userId/blocklist', async (req, res) => {
+  try {
+    res.json({ blocked: await listBlockedContacts(req.params.userId) });
+  } catch (err) {
+    console.error(`[${req.params.userId}] failed to list blocked contacts:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/session/:userId/unblock', async (req, res) => {
+  const { jid } = req.body;
+  if (!jid) return res.status(400).json({ error: 'jid is required' });
+  try {
+    await unblockContact(req.params.userId, jid);
+    res.json({ ok: true, blocked: await listBlockedContacts(req.params.userId) });
+  } catch (err) {
+    console.error(`[${req.params.userId}] failed to unblock ${jid}:`, err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

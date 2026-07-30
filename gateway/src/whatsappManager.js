@@ -1099,6 +1099,25 @@ export async function startSession(userId, phoneNumber) {
       resolvePairingSettled();
       refreshLidMappings();
       lidRefreshInterval = setInterval(refreshLidMappings, LID_REFRESH_INTERVAL_MS);
+
+      // A contact this account has blocked still accepts outgoing messages
+      // at the protocol level -- the server acks them and hands back a real
+      // message id -- but never delivers them. That is indistinguishable
+      // from "the bot is ignoring this chat" from the outside, and it
+      // persists until explicitly unblocked, which is exactly the shape of
+      // the "works for some contacts, never for others" problem. AI Reply's
+      // auto-block ran for a while, so log the blocklist on connect to make
+      // it visible instead of invisible.
+      sock
+        .fetchBlocklist()
+        .then((blocked) => {
+          if (blocked?.length) {
+            console.log(`[${userId}] BLOCKLIST (${blocked.length}): ${blocked.join(', ')}`);
+          } else {
+            console.log(`[${userId}] BLOCKLIST: empty`);
+          }
+        })
+        .catch((err) => console.error(`[${userId}] failed to fetch blocklist:`, err.message));
     } else if (connection === 'close') {
       clearInterval(lidRefreshInterval);
       const statusCode =
@@ -1724,6 +1743,30 @@ export function sessionStatus(userId) {
   const entry = sessions.get(userId);
   if (!entry) return { status: 'none' };
   return { status: entry.status, pairingCode: entry.pairingCode };
+}
+
+function requireConnectedSocket(userId) {
+  const entry = sessions.get(userId);
+  if (!entry || entry.status !== 'connected') {
+    throw new Error('session is not connected');
+  }
+  return entry.sock;
+}
+
+// Blocking a contact makes every outgoing message to them silently
+// undeliverable -- the server still acks it and returns a message id, so
+// nothing in the logs looks wrong -- and it survives restarts and
+// re-pairing, since it lives on the WhatsApp account itself. AI Reply's
+// auto-block could put contacts here without the account owner ever
+// realising, so expose reading and undoing it.
+export async function listBlockedContacts(userId) {
+  const sock = requireConnectedSocket(userId);
+  return (await sock.fetchBlocklist()) || [];
+}
+
+export async function unblockContact(userId, jid) {
+  const sock = requireConnectedSocket(userId);
+  await sock.updateBlockStatus(jid, 'unblock');
 }
 
 export async function logoutSession(userId) {

@@ -1038,7 +1038,7 @@ export async function startSession(userId, phoneNumber) {
       try {
         entry.pairingCode = await sock.requestPairingCode(phoneNumber);
       } catch (err) {
-        console.error(`[${userId}] requestPairingCode failed:`, err);
+        console.error(`[${userId}] requestPairingCode failed:`, err.message);
       } finally {
         resolvePairingSettled();
       }

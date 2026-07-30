@@ -59,7 +59,7 @@ app.post('/session/:userId/pair', async (req, res) => {
     await startSession(userId, phoneNumber.replace(/\D/g, ''));
     res.json(sessionStatus(userId));
   } catch (err) {
-    console.error(err);
+    console.error(`[${userId}] failed to start session:`, err.message);
     res.status(500).json({ error: 'failed to start session' });
   }
 });
@@ -76,7 +76,7 @@ app.post('/session/:userId/reconnect', async (req, res) => {
     const result = await reconnectSession(userId, phoneNumber.replace(/\D/g, ''));
     res.json(result);
   } catch (err) {
-    console.error(err);
+    console.error(`[${userId}] failed to reconnect session:`, err.message);
     res.status(500).json({ error: 'failed to reconnect session' });
   }
 });

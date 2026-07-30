@@ -1291,6 +1291,15 @@ export async function startSession(userId, phoneNumber) {
           continue;
         }
 
+        // Unlike the non-fromMe path below (which has always been wrapped
+        // in its own try/catch, logging "plugin dispatch failed" on any
+        // error), this whole block had no enclosing try/catch at all --
+        // an uncaught exception from any command handler here (e.g. an
+        // edit that fails for a JID form the edit protocol doesn't like)
+        // silently killed the entire messages.upsert callback for that
+        // message, with nothing logged anywhere. Wrapping it guarantees
+        // an error surfaces instead of vanishing.
+        try {
         const saveStickerMatch = text.match(SAVE_STICKER_COMMAND);
         if (saveStickerMatch) {
           await handleSaveStickerCommand(userId, sock, msg, saveStickerMatch[1]);
@@ -1375,6 +1384,12 @@ export async function startSession(userId, phoneNumber) {
           }
         } catch (err) {
           console.error(`[${userId}] ai_write dispatch failed:`, err.message);
+        }
+        } catch (err) {
+          // Temporary: full stack, not just err.message -- this is exactly
+          // the catch that was missing, so pinpointing the precise failing
+          // line matters more here than usual.
+          console.error(`[${userId}] fromMe command dispatch failed:`, err.stack || err.message);
         }
         continue;
       }

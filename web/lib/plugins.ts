@@ -84,7 +84,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   games: {
     name: 'Fun',
-    description: 'Trivia, rock-paper-scissors, and 8-ball.',
+    description: 'Trivia, rps, 8-ball, memes, and voice effects.',
     icon: '🎮',
   },
   broadcast: {

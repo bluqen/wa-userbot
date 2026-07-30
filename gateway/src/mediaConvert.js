@@ -141,3 +141,93 @@ export async function stickerToVideo(buffer) {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+function escapeXml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Greedy word-wrap by character count -- good enough for meme-style text,
+// which is always short and never needs real typographic measurement.
+function wrapText(text, maxCharsPerLine) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxCharsPerLine && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, 4); // a meme caption is never more than a few lines
+}
+
+// Renders one caption block (top or bottom) as its own full-canvas SVG,
+// composited over the source image -- simplest way to let each block
+// position itself independently without doing overlap math by hand.
+function buildCaptionSvg(width, height, text, fontSize, strokeWidth, atTop) {
+  const maxCharsPerLine = Math.max(6, Math.floor(width / (fontSize * 0.55)));
+  const lines = wrapText(text.toUpperCase(), maxCharsPerLine);
+  const lineHeight = fontSize * 1.15;
+  const tspans = lines
+    .map((line, i) => `<tspan x="${width / 2}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
+    .join('');
+  const y = atTop ? fontSize * 1.1 : height - lineHeight * (lines.length - 1) - fontSize * 0.5;
+  return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <text x="${width / 2}" y="${y}" text-anchor="middle" font-family="Impact, Anton, Arial, sans-serif"
+      font-weight="900" font-size="${fontSize}" fill="white" stroke="black" stroke-width="${strokeWidth}"
+      paint-order="stroke" style="letter-spacing:1px">${tspans}</text>
+  </svg>`;
+}
+
+// Classic top/bottom meme caption, composited onto whatever image was
+// quote-replied to (see "/meme top | bottom" in whatsappManager.js).
+export async function addMemeText(buffer, topText, bottomText) {
+  const image = sharp(buffer);
+  const metadata = await image.metadata();
+  const width = metadata.width || 512;
+  const height = metadata.height || 512;
+  const fontSize = Math.round(width / 12);
+  const strokeWidth = Math.max(2, Math.round(fontSize / 12));
+
+  const overlays = [];
+  if (topText) {
+    overlays.push({ input: Buffer.from(buildCaptionSvg(width, height, topText, fontSize, strokeWidth, true)) });
+  }
+  if (bottomText) {
+    overlays.push({ input: Buffer.from(buildCaptionSvg(width, height, bottomText, fontSize, strokeWidth, false)) });
+  }
+  if (overlays.length === 0) {
+    return image.jpeg({ quality: 90 }).toBuffer();
+  }
+  return image.composite(overlays).jpeg({ quality: 90 }).toBuffer();
+}
+
+// Named ffmpeg audio-filter chains for "/robot", "/deep", "/chipmunk",
+// "/echo" (see whatsappManager.js) -- asetrate changes both pitch and
+// speed together; the matching atempo compensates speed back to the
+// original duration while keeping the pitch shift.
+const VOICE_EFFECTS = {
+  robot: 'acrusher=bits=8:mode=log:aa=1,aecho=0.8:0.7:40:0.25',
+  deep: 'asetrate=48000*0.8,aresample=48000,atempo=1.25',
+  chipmunk: 'asetrate=48000*1.6,aresample=48000,atempo=0.625',
+  echo: 'aecho=0.8:0.9:800:0.4',
+};
+
+export const VOICE_EFFECT_NAMES = Object.keys(VOICE_EFFECTS);
+
+// Applies a named voice effect to a voice note, returning it re-encoded as
+// Opus/ogg (WhatsApp's own voice-note format) ready to send straight back
+// with ptt:true. Returns null for an unrecognized effect name.
+export async function applyVoiceEffect(buffer, effectName) {
+  const filter = VOICE_EFFECTS[effectName];
+  if (!filter) return null;
+
+  return withTempFiles(buffer, 'ogg', 'ogg', (input, output) => {
+    const command = ffmpeg(input).audioFilters(filter).outputOptions(['-c:a', 'libopus', '-b:a', '32k']);
+    return runFfmpeg(command, output);
+  });
+}

@@ -22,7 +22,14 @@ import {
   markSessionLoggedOut,
   describeFetchError,
 } from './webClient.js';
-import { imageToSticker, mediaToAnimatedSticker, stickerToImage, stickerToVideo } from './mediaConvert.js';
+import {
+  imageToSticker,
+  mediaToAnimatedSticker,
+  stickerToImage,
+  stickerToVideo,
+  addMemeText,
+  applyVoiceEffect,
+} from './mediaConvert.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
 const SAVE_NOTE_COMMAND = /^\/savenote\s+(\S+)/i;
@@ -33,6 +40,8 @@ const AI_ASK_COMMAND = /^!ai(?:\s+([\s\S]+))?$/i;
 const STICKER_CONVERT_COMMAND = /^\/sticker\b/i;
 const IMG_CONVERT_COMMAND = /^\/img\b/i;
 const GIF_CONVERT_COMMAND = /^\/gif\b/i;
+const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
+const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "/savenote", and voice-note
@@ -128,6 +137,17 @@ function deriveAiAskConfig(plugins) {
 function deriveMediaConvertConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'media_convert');
   return { enabled: !!(entry && entry.enabled) };
+}
+
+// The Fun pack's own plugin key -- games.py (8ball/rps/trivia) already
+// gates itself on this via the plugin engine, but /meme and the voice
+// effects bypass the plugin engine entirely (they need real quoted media
+// bytes the Python side never receives), so the same enabled+
+// replyInGroups gating has to be replicated here.
+function deriveGamesConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'games');
+  if (!entry || !entry.enabled) return { enabled: false, replyInGroups: false };
+  return { enabled: true, replyInGroups: !!entry.settings?.replyInGroups };
 }
 
 // Trusted numbers who can use /tagall and /poll without being the account
@@ -563,6 +583,95 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
   } catch (err) {
     console.error(`[${userId}] media conversion (${mode}) failed:`, err.message);
     await sock.sendMessage(msg.key.remoteJid, { text: `Conversion failed: ${err.message}`, edit: msg.key });
+  }
+}
+
+// "/meme top text | bottom text", quote-replying to an image -- part of
+// the Fun pack, usable by anyone messaging the bot (see deriveGamesConfig
+// gating at the call site), unlike the owner-only commands above.
+async function handleMemeCommand(userId, sock, msg, rawArgs) {
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  const quoted = contextInfo?.quotedMessage;
+  const quotedImage = quoted?.imageMessage;
+
+  if (!quotedImage) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: 'Reply to an image with "/meme top text | bottom text" to make a meme.' },
+      { quoted: msg },
+    );
+    return;
+  }
+
+  const [topText, bottomText] = (rawArgs || '').split('|').map((s) => s.trim());
+
+  const synthetic = {
+    key: { remoteJid: contextInfo.remoteJid || msg.key.remoteJid, id: contextInfo.stanzaId, fromMe: false },
+    message: quoted,
+  };
+
+  try {
+    const media = await downloadAnyMedia(synthetic, 'imageMessage', quotedImage);
+    if (!media) {
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: 'That image is too large to meme-ify (max 8MB).' },
+        { quoted: msg },
+      );
+      return;
+    }
+    const memed = await addMemeText(media.buffer, topText || '', bottomText || '');
+    await sock.sendMessage(msg.key.remoteJid, { image: memed }, { quoted: msg });
+  } catch (err) {
+    console.error(`[${userId}] /meme failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't make that meme: ${err.message}` }, { quoted: msg });
+  }
+}
+
+// "/robot", "/deep", "/chipmunk", "/echo" -- quote-reply to a voice note
+// to get it back transformed. Same Fun-pack gating as /meme above.
+async function handleVoiceEffectCommand(userId, sock, msg, effectName) {
+  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+  const quoted = contextInfo?.quotedMessage;
+  const quotedAudio = quoted?.audioMessage;
+
+  if (!quotedAudio) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { text: `Reply to a voice note with /${effectName} to apply the effect.` },
+      { quoted: msg },
+    );
+    return;
+  }
+
+  const synthetic = {
+    key: { remoteJid: contextInfo.remoteJid || msg.key.remoteJid, id: contextInfo.stanzaId, fromMe: false },
+    message: quoted,
+  };
+
+  try {
+    const media = await downloadAnyMedia(synthetic, 'audioMessage', quotedAudio);
+    if (!media) {
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: 'That voice note is too large to process (max 8MB).' },
+        { quoted: msg },
+      );
+      return;
+    }
+    const transformed = await applyVoiceEffect(media.buffer, effectName);
+    if (!transformed) {
+      await sock.sendMessage(msg.key.remoteJid, { text: `Unknown voice effect "${effectName}".` }, { quoted: msg });
+      return;
+    }
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      { audio: transformed, mimetype: 'audio/ogg; codecs=opus', ptt: true },
+      { quoted: msg },
+    );
+  } catch (err) {
+    console.error(`[${userId}] /${effectName} failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't apply that effect: ${err.message}` }, { quoted: msg });
   }
 }
 
@@ -1110,6 +1219,29 @@ export async function startSession(userId, phoneNumber) {
           const sudoPollMatch = text.match(POLL_COMMAND);
           if (sudoPollMatch && derivePollsConfig(await refreshPluginConfigs()).enabled) {
             await handlePollCommand(userId, sock, msg, sudoPollMatch[1]);
+            continue;
+          }
+        }
+      }
+
+      // Meme generator and voice changer -- usable by anyone messaging the
+      // bot, same as the Python-side Fun pack (8ball/rps/trivia), and
+      // gated by that same "games" plugin toggle + its replyInGroups
+      // setting. These bypass the plugin engine entirely (they need the
+      // actual quoted media bytes, which the Python side never receives)
+      // so the group-gating that games.py would normally do itself has to
+      // be replicated here instead.
+      if (!msg.key.fromMe) {
+        const memeMatch = text.match(MEME_COMMAND);
+        const voiceEffectMatch = text.match(VOICE_EFFECT_COMMAND);
+        if (memeMatch || voiceEffectMatch) {
+          const games = deriveGamesConfig(await refreshPluginConfigs());
+          if (games.enabled && (!isGroupChat || games.replyInGroups)) {
+            if (memeMatch) {
+              await handleMemeCommand(userId, sock, msg, memeMatch[1]);
+              continue;
+            }
+            await handleVoiceEffectCommand(userId, sock, msg, voiceEffectMatch[1].toLowerCase());
             continue;
           }
         }

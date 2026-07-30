@@ -646,7 +646,7 @@ async function handleNoteRecall(userId, sock, msg, name, markAiSent) {
   if (!note) return false;
 
   try {
-    const targetJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
+    const targetJid = msg.key.remoteJid;
     if (note.kind === 'media' && note.data) {
       const content = buildOutgoingMediaContent({
         mediaType: note.mediaType,
@@ -798,7 +798,7 @@ async function sendCommandFeedback(sock, userId, msg, text, label) {
   if (!msg.key.remoteJid?.endsWith('@lid')) {
     return sendTracked(sock, userId, msg.key.remoteJid, { text, edit: msg.key }, undefined, label);
   }
-  const targetJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
+  const targetJid = msg.key.remoteJid;
   return sendTracked(sock, userId, targetJid, { text }, { quoted: msg }, `${label}-lid`);
 }
 
@@ -1415,11 +1415,14 @@ export async function startSession(userId, phoneNumber) {
       }
 
       try {
-        // Where every reply below actually gets sent. For an @lid chat
-        // this is the mapped phone-number JID when one is known (see
-        // resolveSendJid); for everything else it's msg.key.remoteJid
-        // unchanged. Resolved once here rather than per-send.
-        const sendJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
+        // Always the chat's own JID, in whatever form WhatsApp addresses
+        // it (@lid or @s.whatsapp.net). Rewriting an @lid chat's sends to
+        // the mapped phone JID was tried and reverted: the sends reported
+        // success with real message ids, but landed in a different
+        // addressing thread from the conversation on screen, so nothing
+        // showed up -- and it broke contacts that had been working. Only
+        // blocking needs the phone JID (see handleBlockContact).
+        const sendJid = msg.key.remoteJid;
 
         let audio;
         if (isVoiceNote) {
@@ -1595,12 +1598,20 @@ export async function startSession(userId, phoneNumber) {
           // real phone-number JID -- passing a @lid JID gets rejected
           // outright ("bad-request"), confirmed against Baileys' own
           // updateBlockStatus, which forwards whatever jid it's given
-          // as-is with no LID resolution of its own. resolvedFrom is the
-          // best phone-JID guess available (see the senderPn/participantPn
-          // learning above); if this contact was never resolved, it falls
-          // back to the raw JID and the block attempt still fails the
-          // same way as before, just with a clearer log below.
-          await handleBlockContact(userId, sock, resolvedFrom, blockDurationHours);
+          // as-is with no LID resolution of its own. Ask Baileys' own
+          // LID<->phone mapping first (more reliable than the
+          // senderPn/participantPn learning above, which only sees what
+          // individual messages happen to carry), falling back to
+          // resolvedFrom. Unlike a send, redirecting here is correct:
+          // there is no "wrong thread" to land in, only a JID form the
+          // blocklist accepts or rejects.
+          const blockJid = await resolveSendJid(sock, userId, msg.key.remoteJid);
+          await handleBlockContact(
+            userId,
+            sock,
+            blockJid.endsWith('@lid') ? resolvedFrom : blockJid,
+            blockDurationHours,
+          );
         }
       } catch (err) {
         console.error(`[${userId}] plugin dispatch failed:`, err.message);

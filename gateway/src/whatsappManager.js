@@ -1755,6 +1755,28 @@ export async function startSession(userId, phoneNumber) {
     }
   });
 
+  // Delivery status for messages this session sent. sendMessage returning
+  // an id only means the *server* accepted it -- it says nothing about
+  // whether the recipient's device ever received it. Two identical sends
+  // can both report "ok" while only one actually arrives, which is exactly
+  // the failure being chased, and nothing else distinguishes them.
+  //
+  // SERVER_ACK(2) = WhatsApp took it. DELIVERY_ACK(3) = it reached the
+  // recipient's device. A send that stalls at 2 forever was never
+  // delivered, regardless of how healthy the send itself looked.
+  const MESSAGE_STATUS_NAMES = ['ERROR', 'PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED'];
+  sock.ev.on('messages.update', (updates) => {
+    for (const update of updates || []) {
+      const status = update?.update?.status;
+      if (status === undefined || status === null) continue;
+      if (!update.key?.fromMe) continue; // only our own sends are informative here
+      console.log(
+        `[${userId}] delivery: id=${update.key.id} -> ` +
+          `${MESSAGE_STATUS_NAMES[status] || status} (${status}) in ${update.key.remoteJid}`,
+      );
+    }
+  });
+
   sock.ev.on('group-participants.update', async ({ id: groupJid, participants, action }) => {
     if (action !== 'add' && action !== 'remove') return; // ignore promote/demote
 

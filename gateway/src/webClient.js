@@ -121,6 +121,16 @@ export async function fetchSessionPluginConfigs(sessionId) {
     headers: { 'x-internal-secret': INTERNAL_API_SECRET },
     signal: AbortSignal.timeout(10000),
   });
+  // 404 means the web app has no such session -- this gateway is holding a
+  // socket for a session that was deleted or re-paired under a new id.
+  // Flagged distinctly from any other failure so the caller can stop it
+  // rather than carrying on with stale config forever (see
+  // refreshPluginConfigs).
+  if (res.status === 404) {
+    const err = new Error('session no longer exists in the web app');
+    err.code = 'SESSION_UNKNOWN';
+    throw err;
+  }
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
   const data = await res.json();
   return data.plugins || [];

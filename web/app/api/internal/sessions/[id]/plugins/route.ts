@@ -16,6 +16,18 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // A session id with no WaSession row is an *orphan*: a gateway process
+  // still holding a live socket for a session that has since been deleted
+  // (or re-paired under a new id). Without this check the query below just
+  // returns zero rows, which is indistinguishable from "every plugin is
+  // switched off" -- so the orphaned session keeps handling the account's
+  // messages while silently ignoring every command, and toggling plugins
+  // on the real session appears to do nothing. Say so explicitly instead.
+  const session = await prisma.waSession.findUnique({ where: { id: params.id } });
+  if (!session) {
+    return NextResponse.json({ error: 'Unknown session' }, { status: 404 });
+  }
+
   const rows = await prisma.sessionPlugin.findMany({
     where: { sessionId: params.id, enabled: true },
   });

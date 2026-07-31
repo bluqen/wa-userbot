@@ -917,6 +917,20 @@ export async function startSession(userId, phoneNumber) {
       cachedPluginConfigs = await fetchSessionPluginConfigs(userId);
       cachedPluginConfigsFetchedAt = Date.now();
     } catch (err) {
+      if (err.code === 'SESSION_UNKNOWN') {
+        // This session was deleted (or re-paired under a new id) while this
+        // process kept its socket alive. It stays linked to the phone and
+        // keeps handling the account's messages, but every config lookup
+        // now comes back empty -- so it silently ignores every command,
+        // while toggling plugins on the *real* session appears to do
+        // nothing. Shut it down so the live session is the only one acting.
+        console.error(
+          `[${userId}] session no longer exists in the web app -- shutting down this orphaned ` +
+            'socket so it stops shadowing the real one. Credentials are left intact.',
+        );
+        stopOrphanedSession(userId);
+        return [];
+      }
       console.error(`[${userId}] plugin config refresh failed:`, describeFetchError(err));
       // Keep whatever was last known (or the empty default) rather than
       // treating a transient network blip as "everything just turned off".
@@ -1743,6 +1757,22 @@ export function sessionStatus(userId) {
   const entry = sessions.get(userId);
   if (!entry) return { status: 'none' };
   return { status: entry.status, pairingCode: entry.pairingCode };
+}
+
+// Stops a session whose WaSession row no longer exists. Deliberately does
+// NOT clear auth state: the row may have been deleted by mistake, and
+// wiping credentials would force a re-pair rather than just stopping a
+// socket that shouldn't be running. Marked explicitlyStopped so neither
+// the close handler's auto-reconnect nor the watchdog revives it.
+function stopOrphanedSession(userId) {
+  explicitlyStopped.add(userId);
+  const entry = sessions.get(userId);
+  sessions.delete(userId);
+  try {
+    entry?.sock?.end(new Error('session no longer exists in the web app'));
+  } catch (err) {
+    console.error(`[${userId}] failed to close orphaned socket:`, err.message);
+  }
 }
 
 function requireConnectedSocket(userId) {

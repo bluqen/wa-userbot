@@ -664,7 +664,10 @@ async function handleNoteRecall(userId, sock, msg, name, markAiSent) {
     console.error(`[${userId}] note recall lookup failed for "${name}":`, describeFetchError(err));
     return false;
   }
-  if (!note) return false;
+  if (!note) {
+    console.log(`[${userId}] note recall: no note named "${name}" -- falling through to ai_write`);
+    return false;
+  }
 
   try {
     const targetJid = msg.key.remoteJid;
@@ -1492,7 +1495,16 @@ export async function startSession(userId, phoneNumber) {
         // not every "#word" someone types is meant as a note reference.
         const noteRecallMatch = text.match(NOTE_RECALL_RE);
         if (noteRecallMatch) {
-          const notes = deriveNotesConfig(await refreshPluginConfigs());
+          const plugins = await refreshPluginConfigs();
+          const notes = deriveNotesConfig(plugins);
+          // Without this, a "#name" that does nothing is completely silent:
+          // the notes plugin being off, the config fetch having failed (so
+          // every plugin looks off), and the note simply not existing all
+          // look identical from the outside.
+          console.log(
+            `[${userId}] note recall "#${noteRecallMatch[1]}" in ${msg.key.remoteJid}: ` +
+              `notesEnabled=${notes.enabled} pluginsKnown=${plugins.length}`,
+          );
           if (notes.enabled) {
             const handled = await handleNoteRecall(userId, sock, msg, noteRecallMatch[1], markAiSent);
             if (handled) continue;

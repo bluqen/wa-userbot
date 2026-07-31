@@ -25,6 +25,12 @@ class IncomingMessage(BaseModel):
     # which lets ai_reply.py react to it via Gemini's vision input instead
     # of requiring text.
     sticker: Optional[ImagePayload] = None
+    # True when this is a command the account owner typed themselves (see
+    # whatsappManager.js's PLUGIN_COMMAND_RE) rather than a message from
+    # someone else. Such a command is a deliberate human action, so it must
+    # not count toward the anti-bot-loop rate limiter, and it isn't
+    # conversation worth saving as chat history.
+    from_me: bool = False
 
     model_config = {"populate_by_name": True}
 

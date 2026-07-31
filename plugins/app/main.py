@@ -133,7 +133,10 @@ async def handle_message(msg: IncomingMessage):
     # AI Reply context actually has something to work with instead of an
     # empty turn. A sticker has no text to save at all, so this is skipped
     # entirely rather than saving an empty turn.
-    if text:
+    # A command the owner typed themselves isn't conversation -- saving
+    # "/imagine a cat" as a user turn would just pollute the context AI
+    # Reply builds for that contact.
+    if text and not msg.from_me:
         asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", text))
 
     # Independent of any plugin's own cooldown setting: if this contact has
@@ -141,7 +144,14 @@ async def handle_message(msg: IncomingMessage):
     # A human never triggers this at normal typing speed -- it's what
     # happens when the other side is *also* an auto-reply bot and the two
     # end up machine-gunning each other.
-    if is_rate_limited(msg.user_id, msg.from_jid):
+    #
+    # Explicitly skipped for the owner's own commands: those are deliberate
+    # human actions, not an auto-reply loop. Without this, running a handful
+    # of commands in one chat (exactly what testing looks like) trips the
+    # limiter and silences that one chat for five minutes, while every other
+    # chat keeps working -- indistinguishable from "it works in some chats
+    # and not others".
+    if not msg.from_me and is_rate_limited(msg.user_id, msg.from_jid):
         return ReplyResponse(reply=None)
 
     for plugin in build_plugins(configs):
@@ -149,14 +159,17 @@ async def handle_message(msg: IncomingMessage):
             if plugin.match(ctx):
                 reply = plugin.handle(ctx)
                 if reply:
-                    if reply.text:
+                    if reply.text and not msg.from_me:
                         # Same reasoning as above -- don't make the owner
                         # wait for a history-save round trip before they
                         # get their WhatsApp reply.
                         asyncio.create_task(
                             save_message(msg.user_id, msg.from_jid, "assistant", reply.text)
                         )
-                    record_reply(msg.user_id, msg.from_jid)
+                    # Answering the owner's own command must not count
+                    # toward that contact's auto-reply budget either.
+                    if not msg.from_me:
+                        record_reply(msg.user_id, msg.from_jid)
                     return ReplyResponse(
                         reply=reply.text,
                         show_typing=reply.show_typing,

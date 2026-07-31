@@ -1508,7 +1508,7 @@ export async function startSession(userId, phoneNumber) {
         // ai_write so a command is never treated as prose to rewrite.
         if (PLUGIN_COMMAND_RE.test(text)) {
           try {
-            const result = await forwardMessage({ userId, from: resolvedFrom, text });
+            const result = await forwardMessage({ userId, from: resolvedFrom, text, fromMe: true });
             const handled = await deliverPluginCommandReply(sock, userId, msg, result, markAiSent);
             if (handled) continue;
           } catch (err) {

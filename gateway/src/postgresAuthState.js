@@ -96,6 +96,28 @@ export async function isSessionRegistered(sessionId) {
   return Boolean(creds?.registered);
 }
 
+// Drops the stored Signal sessions for ONE contact, forcing them to be
+// renegotiated (with a fresh device list) the next time anything is sent
+// to them. Everything else -- this session's own credentials, and every
+// other contact -- is left untouched.
+//
+// Needed because a stale or partial device list is sticky and invisible:
+// WhatsApp requires a message to be encrypted for *every* device the
+// recipient currently has, so if the stored set is out of date the send
+// is rejected outright (delivery status ERROR) while other messages in
+// the very same chat deliver fine. Nothing re-derives it on its own.
+export async function clearContactSessions(sessionId, contactUser) {
+  await ensureAuthTable();
+  // Session ids are stored as "session-<user>_<agent>.<device>", so match
+  // on the "<user>_" prefix to catch every device for this contact and
+  // nothing belonging to a different one.
+  const { rowCount } = await getPool().query(
+    "DELETE FROM gateway.gateway_auth_state WHERE session_id = $1 AND key LIKE 'session-' || $2 || '\\_%'",
+    [sessionId, contactUser],
+  );
+  return rowCount;
+}
+
 // Used by logoutSession() and reconnectSession()'s last-resort fallback --
 // wipes everything stored for this session (equivalent to the old
 // fs.rmSync(sessionDir) when auth state lived in local files).

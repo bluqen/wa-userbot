@@ -9,7 +9,12 @@ import {
   downloadMediaMessage,
   proto,
 } from '@whiskeysockets/baileys';
-import { usePostgresAuthState, hasStoredCreds, clearAuthState } from './postgresAuthState.js';
+import {
+  usePostgresAuthState,
+  hasStoredCreds,
+  clearAuthState,
+  clearContactSessions,
+} from './postgresAuthState.js';
 import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers, askAI } from './pluginClient.js';
 import {
   createScheduledTask,
@@ -1910,6 +1915,28 @@ export async function listBlockedContacts(userId) {
 export async function unblockContact(userId, jid) {
   const sock = requireConnectedSocket(userId);
   await sock.updateBlockStatus(jid, 'unblock');
+}
+
+// Forces the encryption session with one contact to be renegotiated. Fixes
+// the case where sends to a specific contact are rejected outright
+// (delivery status ERROR) while other messages in the same chat deliver
+// fine, because the stored device list for them has gone stale -- a
+// message must be encrypted for every device the recipient currently has,
+// and nothing refreshes that set on its own.
+//
+// Safe by construction: it only deletes derived key material for that one
+// contact. Signal re-establishes it on the next send; this session's own
+// credentials and every other contact are untouched.
+export async function resetContactEncryption(userId, jid) {
+  const contactUser = String(jid).split('@')[0].split(':')[0];
+  if (!contactUser) throw new Error('could not read a contact id out of that jid');
+
+  const removed = await clearContactSessions(userId, contactUser);
+  console.log(
+    `[${userId}] reset encryption for ${jid}: cleared ${removed} stored session(s) -- ` +
+      'they will be renegotiated on the next message',
+  );
+  return removed;
 }
 
 export async function logoutSession(userId) {

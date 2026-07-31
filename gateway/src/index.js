@@ -20,6 +20,7 @@ import {
   reconnectSession,
   listBlockedContacts,
   unblockContact,
+  resetContactEncryption,
 } from './whatsappManager.js';
 import { fetchSessionsForGateway, describeFetchError } from './webClient.js';
 import { isSessionRegistered } from './postgresAuthState.js';
@@ -121,6 +122,22 @@ app.post('/session/:userId/unblock', async (req, res) => {
     res.json({ ok: true, blocked: await listBlockedContacts(req.params.userId) });
   } catch (err) {
     console.error(`[${req.params.userId}] failed to unblock ${jid}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Clears the stored encryption session for one contact so it renegotiates
+// on the next message. For when sends to that contact come back with
+// delivery status ERROR while the rest of the chat works -- see
+// resetContactEncryption.
+app.post('/session/:userId/reset-contact', async (req, res) => {
+  const { jid } = req.body;
+  if (!jid) return res.status(400).json({ error: 'jid is required' });
+  try {
+    const cleared = await resetContactEncryption(req.params.userId, jid);
+    res.json({ ok: true, cleared });
+  } catch (err) {
+    console.error(`[${req.params.userId}] failed to reset encryption for ${jid}:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });

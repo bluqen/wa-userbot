@@ -40,6 +40,15 @@ const AI_ASK_COMMAND = /^!ai(?:\s+([\s\S]+))?$/i;
 const STICKER_CONVERT_COMMAND = /^\/sticker\b/i;
 const IMG_CONVERT_COMMAND = /^\/img\b/i;
 const GIF_CONVERT_COMMAND = /^\/gif\b/i;
+// Commands implemented as Python plugins rather than in this file (see
+// plugins/app/plugins/*.py). Everything else the owner types is handled by
+// the gateway-side handlers above, but these have to be forwarded to the
+// plugin engine -- which the fromMe branch otherwise never does, since it
+// only ever calls forwardOwnMessage (ai_write's rewrite). That meant the
+// account owner could never use their own /imagine, /pinterest, /song or
+// Fun commands: they only ever fired for messages from other people.
+const PLUGIN_COMMAND_RE = /^\/(song|imagine|pinterest|8ball|rps|trivia)\b/i;
+
 const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
@@ -799,6 +808,50 @@ async function resolveSendJid(sock, userId, jid) {
   return jid;
 }
 
+// Delivers a plugin-engine reply to a command the account owner typed
+// themselves. Deliberately simpler than the incoming-message path: a
+// command wants its answer promptly, so there's no typing simulation,
+// humanlikeness pacing, quoting or blocking here -- just the text and any
+// attachments the plugin produced. Returns false when the engine had
+// nothing to say, so the caller can fall through to ai_write.
+async function deliverPluginCommandReply(sock, userId, msg, result, markAiSent) {
+  const { reply, audio: replyAudio, images: replyImages } = result || {};
+  if (!reply && !replyAudio && !(replyImages && replyImages.length)) return false;
+
+  const jid = msg.key.remoteJid;
+  if (reply) {
+    const sent = await sendTracked(sock, userId, jid, { text: reply }, undefined, 'own-command');
+    markAiSent(sent?.key?.id);
+  }
+  if (replyAudio) {
+    const sent = await sendTracked(
+      sock,
+      userId,
+      jid,
+      {
+        audio: Buffer.from(replyAudio.data, 'base64'),
+        mimetype: replyAudio.mimetype || 'audio/mpeg',
+        ptt: false,
+      },
+      undefined,
+      'own-command-audio',
+    );
+    markAiSent(sent?.key?.id);
+  }
+  for (const image of replyImages || []) {
+    const sent = await sendTracked(
+      sock,
+      userId,
+      jid,
+      { image: Buffer.from(image.data, 'base64'), mimetype: image.mimetype || 'image/jpeg' },
+      undefined,
+      'own-command-image',
+    );
+    markAiSent(sent?.key?.id);
+  }
+  return true;
+}
+
 // Command feedback ("Saved note ...") is normally delivered by editing the
 // command message in place, which keeps the chat clean. That edit
 // references a message key in the original thread; in an @lid-addressed
@@ -1322,14 +1375,22 @@ export async function startSession(userId, phoneNumber) {
         }
       }
 
-      // Meme generator and voice changer -- usable by anyone messaging the
-      // bot, same as the Python-side Fun pack (8ball/rps/trivia), and
-      // gated by that same "games" plugin toggle + its replyInGroups
-      // setting. These bypass the plugin engine entirely (they need the
-      // actual quoted media bytes, which the Python side never receives)
-      // so the group-gating that games.py would normally do itself has to
-      // be replicated here instead.
-      if (!msg.key.fromMe) {
+      // Meme generator and voice changer -- gated by the "games" plugin
+      // toggle and its replyInGroups setting, same as the Python-side Fun
+      // pack. These bypass the plugin engine entirely (they need the actual
+      // quoted media bytes, which the Python side never receives), so the
+      // group-gating games.py would normally do itself is replicated here.
+      //
+      // Runs for the account owner's own messages too, not just other
+      // people's: this used to be gated on !fromMe, which meant the owner
+      // could never use their own /meme or voice effects -- they only ever
+      // worked when someone else sent them. Sitting before the fromMe/
+      // non-fromMe split below means one check covers both.
+      // Skips anything this bot sent itself. That guard normally lives in
+      // the fromMe branch below, which no longer runs first for these two
+      // commands -- so without it a reply the bot produced could in
+      // principle re-trigger them.
+      if (!aiSentMessageIds.has(msg.key.id)) {
         const memeMatch = text.match(MEME_COMMAND);
         const voiceEffectMatch = text.match(VOICE_EFFECT_COMMAND);
         if (memeMatch || voiceEffectMatch) {
@@ -1435,6 +1496,24 @@ export async function startSession(userId, phoneNumber) {
           if (notes.enabled) {
             const handled = await handleNoteRecall(userId, sock, msg, noteRecallMatch[1], markAiSent);
             if (handled) continue;
+          }
+        }
+
+        // Commands that live in the Python plugin engine (see
+        // PLUGIN_COMMAND_RE). Everything above is handled gateway-side, but
+        // these need forwarding -- and this branch otherwise never talks to
+        // the plugin engine at all, so the account owner could never run
+        // their own /imagine, /pinterest, /song or Fun commands. Deliberately
+        // placed after the note recall so "#name" still wins, and before
+        // ai_write so a command is never treated as prose to rewrite.
+        if (PLUGIN_COMMAND_RE.test(text)) {
+          try {
+            const result = await forwardMessage({ userId, from: resolvedFrom, text });
+            const handled = await deliverPluginCommandReply(sock, userId, msg, result, markAiSent);
+            if (handled) continue;
+          } catch (err) {
+            console.error(`[${userId}] own-command dispatch failed:`, describeFetchError(err));
+            continue;
           }
         }
 

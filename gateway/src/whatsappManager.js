@@ -471,9 +471,11 @@ async function handlePollCommand(userId, sock, msg, rawPoll) {
 
 // One-shot AI question, triggered by "!ai <question>" or by replying to
 // any message with just "!ai" (asks about the quoted message). Distinct
-// from the ongoing AI Reply conversation flow -- this is a single ask,
-// answered by editing the command message itself in place, same idiom as
-// every other owner-only command.
+// from the ongoing AI Reply conversation flow -- this is a single ask.
+// Unlike every other owner-only command, the answer is sent as its own
+// quoted reply rather than editing "!ai ..." in place: it's real
+// conversational content someone might want to keep visible/quote further,
+// not a brief status like "Saved note ...".
 async function handleAskCommand(userId, sock, msg, rawQuestion) {
   const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
   const quoted = contextInfo?.quotedMessage;
@@ -483,17 +485,38 @@ async function handleAskCommand(userId, sock, msg, rawQuestion) {
   const question = quotedText && typed ? `Regarding this message: "${quotedText}"\n\n${typed}` : quotedText || typed;
 
   if (!question) {
-    await sendCommandFeedback(sock, userId, msg, 'Usage: !ai <question>, or reply to a message with !ai to ask about it.', 'command');
+    await sendTracked(
+      sock,
+      userId,
+      msg.key.remoteJid,
+      { text: 'Usage: !ai <question>, or reply to a message with !ai to ask about it.' },
+      { quoted: msg },
+      'ai-ask-usage',
+    );
     return;
   }
 
   try {
     const answer = await askAI({ userId, question });
-    await sendCommandFeedback(sock, userId, msg, answer || 'No AI provider configured, or that request failed -- try again?', 'command');
+    await sendTracked(
+      sock,
+      userId,
+      msg.key.remoteJid,
+      { text: answer || 'No AI provider configured, or that request failed -- try again?' },
+      { quoted: msg },
+      'ai-ask',
+    );
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] !ai request failed:`, detail);
-    await sendCommandFeedback(sock, userId, msg, `AI request failed: ${detail}`, 'command');
+    await sendTracked(
+      sock,
+      userId,
+      msg.key.remoteJid,
+      { text: `AI request failed: ${detail}` },
+      { quoted: msg },
+      'ai-ask-error',
+    );
   }
 }
 

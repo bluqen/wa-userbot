@@ -42,6 +42,7 @@ const ADD_BROADCAST_COMMAND = /^\/addbroadcast\s+(\S+)/i;
 const TAG_ALL_COMMAND = /^\/tagall(?:\s+([\s\S]+))?$/i;
 const POLL_COMMAND = /^\/poll\s+([\s\S]+)/i;
 const AI_ASK_COMMAND = /^!ai(?:\s+([\s\S]+))?$/i;
+const AI_ASK_EDIT_COMMAND = /^!aie(?:\s+([\s\S]+))?$/i;
 const STICKER_CONVERT_COMMAND = /^\/sticker\b/i;
 const IMG_CONVERT_COMMAND = /^\/img\b/i;
 const GIF_CONVERT_COMMAND = /^\/gif\b/i;
@@ -469,14 +470,15 @@ async function handlePollCommand(userId, sock, msg, rawPoll) {
   }
 }
 
-// One-shot AI question, triggered by "!ai <question>" or by replying to
-// any message with just "!ai" (asks about the quoted message). Distinct
-// from the ongoing AI Reply conversation flow -- this is a single ask.
-// Unlike every other owner-only command, the answer is sent as its own
-// quoted reply rather than editing "!ai ..." in place: it's real
-// conversational content someone might want to keep visible/quote further,
-// not a brief status like "Saved note ...".
-async function handleAskCommand(userId, sock, msg, rawQuestion) {
+// One-shot AI question, triggered by "!ai <question>" / "!aie <question>",
+// or by replying to any message with just "!ai"/"!aie" (asks about the
+// quoted message). Distinct from the ongoing AI Reply conversation flow --
+// this is a single ask. Two entry points, same question-answering logic:
+// "!ai" sends the answer as its own quoted reply (real conversational
+// content worth keeping visible/quotable, not a brief status), while
+// "!aie" edits the command in place instead, for whoever wants the
+// tidier, no-extra-message version every other owner-only command uses.
+async function handleAskCommand(userId, sock, msg, rawQuestion, { editInPlace }) {
   const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
   const quoted = contextInfo?.quotedMessage;
   const quotedText = quoted ? quoted.conversation || quoted.extendedTextMessage?.text || '' : '';
@@ -484,13 +486,15 @@ async function handleAskCommand(userId, sock, msg, rawQuestion) {
   const typed = (rawQuestion || '').trim();
   const question = quotedText && typed ? `Regarding this message: "${quotedText}"\n\n${typed}` : quotedText || typed;
 
+  const deliver = (text, label) =>
+    editInPlace
+      ? sendTracked(sock, userId, msg.key.remoteJid, { text, edit: msg.key }, undefined, label)
+      : sendTracked(sock, userId, msg.key.remoteJid, { text }, { quoted: msg }, label);
+
   if (!question) {
-    await sendTracked(
-      sock,
-      userId,
-      msg.key.remoteJid,
-      { text: 'Usage: !ai <question>, or reply to a message with !ai to ask about it.' },
-      { quoted: msg },
+    const usageCommand = editInPlace ? '!aie' : '!ai';
+    await deliver(
+      `Usage: ${usageCommand} <question>, or reply to a message with ${usageCommand} to ask about it.`,
       'ai-ask-usage',
     );
     return;
@@ -498,25 +502,11 @@ async function handleAskCommand(userId, sock, msg, rawQuestion) {
 
   try {
     const answer = await askAI({ userId, question });
-    await sendTracked(
-      sock,
-      userId,
-      msg.key.remoteJid,
-      { text: answer || 'No AI provider configured, or that request failed -- try again?' },
-      { quoted: msg },
-      'ai-ask',
-    );
+    await deliver(answer || 'No AI provider configured, or that request failed -- try again?', 'ai-ask');
   } catch (err) {
     const detail = describeFetchError(err);
     console.error(`[${userId}] !ai request failed:`, detail);
-    await sendTracked(
-      sock,
-      userId,
-      msg.key.remoteJid,
-      { text: `AI request failed: ${detail}` },
-      { quoted: msg },
-      'ai-ask-error',
-    );
+    await deliver(`AI request failed: ${detail}`, 'ai-ask-error');
   }
 }
 
@@ -1517,11 +1507,24 @@ export async function startSession(userId, phoneNumber) {
           }
         }
 
+        // "!aie" (edit-in-place) checked first: it's the more specific
+        // pattern, and AI_ASK_COMMAND's own regex never matches it anyway
+        // (the trailing "e" isn't a word boundary "!ai" can absorb), but
+        // keeping the specific one first avoids relying on that.
+        const aiAskEditMatch = text.match(AI_ASK_EDIT_COMMAND);
+        if (aiAskEditMatch) {
+          const aiAsk = deriveAiAskConfig(await refreshPluginConfigs());
+          if (aiAsk.enabled) {
+            await handleAskCommand(userId, sock, msg, aiAskEditMatch[1], { editInPlace: true });
+            continue;
+          }
+        }
+
         const aiAskMatch = text.match(AI_ASK_COMMAND);
         if (aiAskMatch) {
           const aiAsk = deriveAiAskConfig(await refreshPluginConfigs());
           if (aiAsk.enabled) {
-            await handleAskCommand(userId, sock, msg, aiAskMatch[1]);
+            await handleAskCommand(userId, sock, msg, aiAskMatch[1], { editInPlace: false });
             continue;
           }
         }

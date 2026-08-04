@@ -1099,12 +1099,30 @@ export async function startSession(userId, phoneNumber) {
   // for a contact when it knows the mapping -- record it here and resolve
   // incoming LIDs back to the real phone-number JID before handing the
   // message off to the plugin engine.
+  //
+  // Bounded: a full contacts sync (recordContacts, on every reconnect) and
+  // the per-message senderPn/participantPn learning below both add an
+  // entry per *distinct* LID this session has ever seen, with nothing that
+  // ever removes one -- unlike every other per-contact cache in this file,
+  // which sweeps or caps. Over weeks of a session sitting in active groups,
+  // that grows without limit and was the actual cause of a real OOM crash
+  // loop on Render's 512MB tier. A dropped mapping just means one send
+  // falls back to the unresolved @lid form until it's relearned -- cheap
+  // degradation, not data loss.
+  const MAX_LID_MAP_SIZE = 5000;
   const lidToPhoneJid = new Map();
+
+  function rememberLidMapping(lid, phoneJid) {
+    lidToPhoneJid.set(lid, phoneJid);
+    while (lidToPhoneJid.size > MAX_LID_MAP_SIZE) {
+      lidToPhoneJid.delete(lidToPhoneJid.keys().next().value);
+    }
+  }
 
   function recordContacts(contacts) {
     for (const c of contacts) {
       if (c.lid && c.jid) {
-        lidToPhoneJid.set(jidNormalizedUser(c.lid), jidNormalizedUser(c.jid));
+        rememberLidMapping(jidNormalizedUser(c.lid), jidNormalizedUser(c.jid));
       }
     }
   }
@@ -1128,7 +1146,7 @@ export async function startSession(userId, phoneNumber) {
       const results = await sock.onWhatsApp(...numbers.map((n) => `${n}@s.whatsapp.net`));
       for (const r of results || []) {
         if (r?.exists && r.lid && r.jid) {
-          lidToPhoneJid.set(jidNormalizedUser(r.lid), jidNormalizedUser(r.jid));
+          rememberLidMapping(jidNormalizedUser(r.lid), jidNormalizedUser(r.jid));
         }
       }
     } catch (err) {
@@ -1266,10 +1284,10 @@ export async function startSession(userId, phoneNumber) {
       // history, and blocking) works for *any* @lid contact, not just
       // pre-configured ones.
       if (msg.key.senderPn && msg.key.remoteJid?.endsWith('@lid')) {
-        lidToPhoneJid.set(jidNormalizedUser(msg.key.remoteJid), jidNormalizedUser(msg.key.senderPn));
+        rememberLidMapping(jidNormalizedUser(msg.key.remoteJid), jidNormalizedUser(msg.key.senderPn));
       }
       if (msg.key.participantPn && msg.key.participant?.endsWith('@lid')) {
-        lidToPhoneJid.set(jidNormalizedUser(msg.key.participant), jidNormalizedUser(msg.key.participantPn));
+        rememberLidMapping(jidNormalizedUser(msg.key.participant), jidNormalizedUser(msg.key.participantPn));
       }
 
       // "Delete for everyone" arrives as a normal message: a protocolMessage

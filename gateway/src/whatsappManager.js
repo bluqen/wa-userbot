@@ -33,7 +33,6 @@ import {
   mediaToAnimatedSticker,
   stickerToImage,
   stickerToVideo,
-  addMemeText,
   applyVoiceEffect,
   generateQrCode,
   resolveQrColor,
@@ -56,9 +55,8 @@ const GIF_CONVERT_COMMAND = /^\/gif\b/i;
 // only ever calls forwardOwnMessage (ai_write's rewrite). That meant the
 // account owner could never use their own /imagine, /pinterest, /song or
 // Fun commands: they only ever fired for messages from other people.
-const PLUGIN_COMMAND_RE = /^(?:\/(?:song|imagine|pinterest|8ball|rps|trivia)|!(?:translate|tl))\b/i;
+const PLUGIN_COMMAND_RE = /^(?:\/(?:song|imagine|pinterest|meme|8ball|rps|trivia)|!(?:translate|tl))\b/i;
 
-const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
 const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
@@ -677,48 +675,6 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
   } catch (err) {
     console.error(`[${userId}] media conversion (${mode}) failed:`, describeFetchError(err));
     await sendCommandFeedback(sock, userId, msg, `Conversion failed: ${err.message}`, 'command');
-  }
-}
-
-// "/meme top text | bottom text", quote-replying to an image -- part of
-// the Fun pack, usable by anyone messaging the bot (see deriveGamesConfig
-// gating at the call site), unlike the owner-only commands above.
-async function handleMemeCommand(userId, sock, msg, rawArgs) {
-  const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
-  const quoted = contextInfo?.quotedMessage;
-  const quotedImage = quoted?.imageMessage;
-
-  if (!quotedImage) {
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      { text: 'Reply to an image with "/meme top text | bottom text" to make a meme.' },
-      { quoted: msg },
-    );
-    return;
-  }
-
-  const [topText, bottomText] = (rawArgs || '').split('|').map((s) => s.trim());
-
-  const synthetic = {
-    key: { remoteJid: contextInfo.remoteJid || msg.key.remoteJid, id: contextInfo.stanzaId, fromMe: false },
-    message: quoted,
-  };
-
-  try {
-    const media = await downloadAnyMedia(synthetic, 'imageMessage', quotedImage);
-    if (!media) {
-      await sock.sendMessage(
-        msg.key.remoteJid,
-        { text: 'That image is too large to meme-ify (max 8MB).' },
-        { quoted: msg },
-      );
-      return;
-    }
-    const memed = await addMemeText(media.buffer, topText || '', bottomText || '');
-    await sock.sendMessage(msg.key.remoteJid, { image: memed }, { quoted: msg });
-  } catch (err) {
-    console.error(`[${userId}] /meme failed:`, describeFetchError(err));
-    await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't make that meme: ${err.message}` }, { quoted: msg });
   }
 }
 
@@ -1718,31 +1674,27 @@ export async function startSession(userId, phoneNumber) {
         }
       }
 
-      // Meme generator and voice changer -- gated by the "games" plugin
-      // toggle and its replyInGroups setting, same as the Python-side Fun
-      // pack. These bypass the plugin engine entirely (they need the actual
-      // quoted media bytes, which the Python side never receives), so the
-      // group-gating games.py would normally do itself is replicated here.
+      // Voice changer -- gated by the "games" plugin toggle and its
+      // replyInGroups setting, same as the Python-side Fun pack (/meme now
+      // lives there too, see games.py -- this one stays gateway-side since
+      // it needs the actual quoted voice-note bytes, which the Python side
+      // never receives), so the group-gating games.py would normally do
+      // itself is replicated here.
       //
       // Runs for the account owner's own messages too, not just other
       // people's: this used to be gated on !fromMe, which meant the owner
-      // could never use their own /meme or voice effects -- they only ever
-      // worked when someone else sent them. Sitting before the fromMe/
-      // non-fromMe split below means one check covers both.
+      // could never use their own voice effects -- they only ever worked
+      // when someone else sent them. Sitting before the fromMe/non-fromMe
+      // split below means one check covers both.
       // Skips anything this bot sent itself. That guard normally lives in
-      // the fromMe branch below, which no longer runs first for these two
-      // commands -- so without it a reply the bot produced could in
-      // principle re-trigger them.
+      // the fromMe branch below, which no longer runs first for this
+      // command -- so without it a reply the bot produced could in
+      // principle re-trigger it.
       if (!aiSentMessageIds.has(msg.key.id)) {
-        const memeMatch = text.match(MEME_COMMAND);
         const voiceEffectMatch = text.match(VOICE_EFFECT_COMMAND);
-        if (memeMatch || voiceEffectMatch) {
+        if (voiceEffectMatch) {
           const games = deriveGamesConfig(await refreshPluginConfigs());
           if (games.enabled && (!isGroupChat || games.replyInGroups)) {
-            if (memeMatch) {
-              await handleMemeCommand(userId, sock, msg, memeMatch[1]);
-              continue;
-            }
             await handleVoiceEffectCommand(userId, sock, msg, voiceEffectMatch[1].toLowerCase());
             continue;
           }

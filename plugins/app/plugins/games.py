@@ -1,15 +1,30 @@
+import base64
 import random
 import re
 import time
 from typing import Optional
 
-from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+import httpx
+
+from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolve_settings
 from ..stale_cache import maybe_sweep
 
 EIGHT_BALL_COMMAND = re.compile(r"^/8ball(?:\s+.+)?$", re.IGNORECASE)
 RPS_COMMAND = re.compile(r"^/rps\s+(rock|paper|scissors)$", re.IGNORECASE)
 TRIVIA_COMMAND = re.compile(r"^/trivia$", re.IGNORECASE)
 TRIVIA_ANSWER_COMMAND = re.compile(r"^/trivia\s+answer\s+([a-dA-D])$", re.IGNORECASE)
+# Optional subreddit name, e.g. "/meme" (random) or "/meme wholesomememes".
+MEME_COMMAND = re.compile(r"^/meme(?:\s+(\S+))?$", re.IGNORECASE)
+
+# Free, keyless meme API -- pulls a random post (image + title) from a
+# curated set of meme subreddits, or a named one if given. No signup, no
+# rate-limit headaches, unlike sourcing "real" meme content any other way.
+MEME_API_URL = "https://meme-api.com/gimme"
+# Same cap every other media-download path in this codebase uses.
+MAX_MEME_IMAGE_BYTES = 8 * 1024 * 1024
+# A result can come back nsfw:true (meme-api pulls from real subreddits) --
+# retry a few times with a fresh random pick rather than ever sending one.
+MEME_FETCH_ATTEMPTS = 3
 
 EIGHT_BALL_ANSWERS = [
     "It is certain.", "Without a doubt.", "Yes, definitely.", "You may rely on it.",
@@ -69,9 +84,9 @@ _PENDING_TRIVIA_STALE_AFTER_SECONDS = 30 * 60
 
 class GamesPlugin(Plugin):
     """A handful of lightweight games/fun commands -- 8-ball, rock-paper-
-    scissors, and trivia -- for anyone chatting with the bot. No LLM
-    involved; these are simple, deterministic commands, matching the
-    "games & fun" command set nearly every popular WhatsApp userbot ships.
+    scissors, trivia, and random memes -- for anyone chatting with the bot.
+    Matches the "games & fun" command set nearly every popular WhatsApp
+    userbot ships.
     """
 
     name = "games"
@@ -94,6 +109,8 @@ class GamesPlugin(Plugin):
         if EIGHT_BALL_COMMAND.match(text) or RPS_COMMAND.match(text) or TRIVIA_COMMAND.match(text):
             return True
         if TRIVIA_ANSWER_COMMAND.match(text):
+            return True
+        if MEME_COMMAND.match(text):
             return True
         return False
 
@@ -152,4 +169,58 @@ class GamesPlugin(Plugin):
                 return Reply(text="✅ Correct!")
             return Reply(text=f"❌ Not quite -- the answer was {pending['correct']}.")
 
+        meme_match = MEME_COMMAND.match(text)
+        if meme_match:
+            return _fetch_meme((meme_match.group(1) or "").strip())
+
         return None
+
+
+def _fetch_meme(subreddit: str) -> Reply:
+    url = f"{MEME_API_URL}/{subreddit}" if subreddit else MEME_API_URL
+    for _ in range(MEME_FETCH_ATTEMPTS):
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                res = client.get(url)
+                if res.status_code == 404:
+                    return Reply(text=f'No meme subreddit called "{subreddit}" -- try "/meme" for a random one.')
+                res.raise_for_status()
+                data = res.json()
+        except Exception as exc:
+            print(f"[games] meme fetch failed: {exc}")
+            return Reply(text="Couldn't fetch a meme right now -- try again?")
+
+        if data.get("nsfw") or not data.get("url"):
+            continue  # skip and retry with a fresh random pick
+
+        try:
+            image_bytes = _download_meme_image(data["url"])
+        except Exception as exc:
+            print(f"[games] meme image download failed: {exc}")
+            continue
+
+        title = data.get("title") or "meme"
+        return Reply(
+            text=f"\U0001F602 {title}",
+            images=[ImageAttachment(data=base64.b64encode(image_bytes).decode(), mimetype="image/jpeg")],
+        )
+
+    return Reply(text="Couldn't find a meme right now -- try again?")
+
+
+def _download_meme_image(url: str) -> bytes:
+    with httpx.Client(timeout=20.0, follow_redirects=True) as client:
+        with client.stream("GET", url) as res:
+            res.raise_for_status()
+            content_length = res.headers.get("content-length")
+            if content_length and int(content_length) > MAX_MEME_IMAGE_BYTES:
+                raise ValueError(f"image too large ({content_length} bytes, max {MAX_MEME_IMAGE_BYTES})")
+
+            chunks = []
+            total = 0
+            for chunk in res.iter_bytes():
+                total += len(chunk)
+                if total > MAX_MEME_IMAGE_BYTES:
+                    raise ValueError(f"image exceeded {MAX_MEME_IMAGE_BYTES} bytes while downloading")
+                chunks.append(chunk)
+            return b"".join(chunks)

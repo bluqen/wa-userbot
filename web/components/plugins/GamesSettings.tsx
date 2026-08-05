@@ -35,9 +35,9 @@ export default function GamesSettings({
         <code className="rounded bg-surface-raised px-1">/trivia answer &lt;letter&gt;</code>).
         <br />
         <br />
-        Reply to an image with{' '}
-        <code className="rounded bg-surface-raised px-1">/meme top text | bottom text</code> for a
-        classic meme caption. Reply to a voice note with{' '}
+        Send <code className="rounded bg-surface-raised px-1">/meme</code> for a random meme, or{' '}
+        <code className="rounded bg-surface-raised px-1">/meme wholesomememes</code> to pull from a
+        specific subreddit. Reply to a voice note with{' '}
         <code className="rounded bg-surface-raised px-1">/robot</code>,{' '}
         <code className="rounded bg-surface-raised px-1">/deep</code>,{' '}
         <code className="rounded bg-surface-raised px-1">/chipmunk</code>, or{' '}

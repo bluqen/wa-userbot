@@ -18,7 +18,8 @@ export type PluginKey =
   | 'pinterest'
   | 'ai_ask'
   | 'media_convert'
-  | 'qr';
+  | 'qr'
+  | 'translate';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -41,6 +42,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'ai_ask',
   'media_convert',
   'qr',
+  'translate',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -144,6 +146,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'Turns any link or text into a scannable QR code.',
     icon: '🔳',
   },
+  translate: {
+    name: 'Translate',
+    description: 'Instant translation with "!tl es" or "!translate spanish".',
+    icon: '🌐',
+  },
 };
 
 export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
@@ -218,6 +225,9 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   ai_ask: {},
   media_convert: {},
   qr: {
+    replyInGroups: false,
+  },
+  translate: {
     replyInGroups: false,
   },
 };

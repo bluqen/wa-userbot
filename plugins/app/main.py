@@ -120,6 +120,8 @@ async def handle_message(msg: IncomingMessage):
         is_voice=is_voice,
         incoming_sticker_bytes=incoming_sticker_bytes,
         incoming_sticker_mimetype=incoming_sticker_mimetype,
+        from_me=msg.from_me,
+        quoted_text=msg.quoted_text,
     )
 
     # Record the incoming message regardless of whether anything replies to

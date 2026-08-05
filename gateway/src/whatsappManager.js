@@ -55,7 +55,7 @@ const GIF_CONVERT_COMMAND = /^\/gif\b/i;
 // only ever calls forwardOwnMessage (ai_write's rewrite). That meant the
 // account owner could never use their own /imagine, /pinterest, /song or
 // Fun commands: they only ever fired for messages from other people.
-const PLUGIN_COMMAND_RE = /^\/(song|imagine|pinterest|8ball|rps|trivia)\b/i;
+const PLUGIN_COMMAND_RE = /^(?:\/(?:song|imagine|pinterest|8ball|rps|trivia)|!(?:translate|tl))\b/i;
 
 const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
@@ -84,6 +84,18 @@ const MAX_MEDIA_DOWNLOAD_BYTES = 8 * 1024 * 1024; // covers virtually all images
 
 function detectMediaType(messageContent) {
   return MEDIA_MESSAGE_TYPES.find((t) => messageContent[t]);
+}
+
+// The plain text of whatever message this one is quote-replying to, if
+// any -- '' when it isn't a reply, or the quoted message wasn't text.
+// Same extraction the gateway's own commands (/savenote, !ai) already do
+// for themselves; forwarded to the plugin engine too so Python plugins
+// can see it (e.g. !translate translating the quoted message rather than
+// needing the text typed inline every time).
+function extractQuotedText(msg) {
+  const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+  if (!quoted) return '';
+  return quoted.conversation || quoted.extendedTextMessage?.text || '';
 }
 
 // Returns null (rather than throwing) for "too large to bother with" so
@@ -1631,7 +1643,13 @@ export async function startSession(userId, phoneNumber) {
         // ai_write so a command is never treated as prose to rewrite.
         if (PLUGIN_COMMAND_RE.test(text)) {
           try {
-            const result = await forwardMessage({ userId, from: resolvedFrom, text, fromMe: true });
+            const result = await forwardMessage({
+              userId,
+              from: resolvedFrom,
+              text,
+              fromMe: true,
+              quotedText: extractQuotedText(msg),
+            });
             const handled = await deliverPluginCommandReply(sock, userId, msg, result, markAiSent);
             if (handled) continue;
           } catch (err) {
@@ -1721,7 +1739,14 @@ export async function startSession(userId, phoneNumber) {
           stickerTag,
           audio: replyAudio,
           images: replyImages,
-        } = await forwardMessage({ userId, from: resolvedFrom, text, audio, sticker });
+        } = await forwardMessage({
+          userId,
+          from: resolvedFrom,
+          text,
+          audio,
+          sticker,
+          quotedText: extractQuotedText(msg),
+        });
 
         if (reply) {
           // Waited once, before anything visible happens (typing indicator

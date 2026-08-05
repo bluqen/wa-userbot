@@ -31,6 +31,10 @@ class IncomingMessage(BaseModel):
     # not count toward the anti-bot-loop rate limiter, and it isn't
     # conversation worth saving as chat history.
     from_me: bool = False
+    # The text of whatever message this one is quote-replying to, if any --
+    # empty otherwise. Lets a plugin act on a reply ("reply with !tl es")
+    # without the content being retyped inline every time. See translate.py.
+    quoted_text: str = ""
 
     model_config = {"populate_by_name": True}
 

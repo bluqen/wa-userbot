@@ -9,14 +9,25 @@ const PLUGIN_ENGINE_URL = process.env.PLUGIN_ENGINE_URL || 'http://localhost:800
 // (an incoming sticker with no caption), similarly carries raw bytes as
 // base64 -- ai_reply.py reacts to the image directly instead of needing
 // text (see its use of incoming_sticker_bytes).
-export async function forwardMessage({ userId, from, text, audio, sticker, fromMe }) {
+export async function forwardMessage({ userId, from, text, audio, sticker, fromMe, quotedText }) {
   const res = await fetch(`${PLUGIN_ENGINE_URL}/message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // `from_me` marks a command the account owner typed themselves, so the
     // engine can skip the anti-bot-loop rate limiter and history saving --
     // neither of which should apply to a deliberate human command.
-    body: JSON.stringify({ user_id: userId, from, text, audio, sticker, from_me: !!fromMe }),
+    // `quoted_text`, when this message is a reply, carries the quoted
+    // message's own text -- lets a plugin act on "reply with !tl es" style
+    // commands without the text being retyped inline every time.
+    body: JSON.stringify({
+      user_id: userId,
+      from,
+      text,
+      audio,
+      sticker,
+      from_me: !!fromMe,
+      quoted_text: quotedText || '',
+    }),
     // A voice note means real transcription work, and a "/song" request
     // (see song.py) means fetching and downloading a multi-MB file from
     // Jamendo, both on top of the usual plugin dispatch -- either can

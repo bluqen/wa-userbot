@@ -34,6 +34,9 @@ import PinterestSettings, {
 import AiAskSettings from '@/components/plugins/AiAskSettings';
 import MediaConvertSettings from '@/components/plugins/MediaConvertSettings';
 import QrSettings, { type QrSettingsValue } from '@/components/plugins/QrSettings';
+import TranslateSettings, {
+  type TranslateSettingsValue,
+} from '@/components/plugins/TranslateSettings';
 
 type PluginConfig = {
   key: string;
@@ -185,6 +188,12 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               {plugin.key === 'qr' && (
                 <QrSettings
                   value={plugin.settings as QrSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'translate' && (
+                <TranslateSettings
+                  value={plugin.settings as TranslateSettingsValue}
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}

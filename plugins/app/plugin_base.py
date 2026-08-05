@@ -26,6 +26,18 @@ class MessageContext:
     # for every ordinary text/voice message).
     incoming_sticker_bytes: Optional[bytes] = None
     incoming_sticker_mimetype: str = "image/webp"
+    # True when this message is a command the account owner typed
+    # themselves, forwarded from whatsappManager.js's PLUGIN_COMMAND_RE
+    # rather than coming from another person. Nothing here uses it directly
+    # today (the rate-limit/history-save skip both happen in main.py before
+    # a plugin ever sees the message) -- kept on the context anyway since a
+    # plugin may reasonably want to behave differently for the owner's own
+    # command versus an incoming message from someone else.
+    from_me: bool = False
+    # Text of whatever message this one is quote-replying to, if any -- ''
+    # otherwise. See translate.py for the motivating case: "reply with
+    # !tl es" needs the quoted text, not just the two-word command itself.
+    quoted_text: str = ""
 
 
 @dataclass

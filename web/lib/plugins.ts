@@ -253,3 +253,38 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
 export function isPluginKey(key: string): key is PluginKey {
   return (PLUGIN_KEYS as string[]).includes(key);
 }
+
+// Plugins a brand-new session starts with switched on, rather than every
+// plugin defaulting off and needing a deliberate first visit to the
+// dashboard. Deliberately narrow: only plugins that either (a) only ever
+// act on an explicit command someone typed, with no effect on anyone but
+// that person, or (b) are notification-only and never post back into a
+// chat (anti_delete). Left off: autoreply/ai_reply/ai_write (need real
+// configuration -- a message, a personality -- before they're worth
+// running, and ai_write rewrites the owner's own outgoing messages
+// automatically, which would be a surprising default), welcome/antilink
+// (post into or moderate groups the owner might not actually run),
+// statusview (ambiently views everyone's WhatsApp Status -- a visible
+// side effect other people see), and sudo/leads (inert until deliberately
+// configured, or continuously scanning conversations via an LLM call).
+const DEFAULT_ENABLED_PLUGINS: ReadonlySet<PluginKey> = new Set([
+  'song',
+  'anti_delete',
+  'notes',
+  'games',
+  'broadcast',
+  'tagall',
+  'polls',
+  'imagine',
+  'pinterest',
+  'ai_ask',
+  'media_convert',
+  'qr',
+  'translate',
+  'timer',
+  'session_status',
+]);
+
+export function isDefaultEnabled(key: PluginKey): boolean {
+  return DEFAULT_ENABLED_PLUGINS.has(key);
+}

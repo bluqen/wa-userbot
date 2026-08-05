@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireUserId } from '@/lib/session';
-import { PLUGIN_KEYS, PLUGIN_DEFAULTS, PLUGIN_META } from '@/lib/plugins';
+import { PLUGIN_KEYS, PLUGIN_DEFAULTS, PLUGIN_META, isDefaultEnabled } from '@/lib/plugins';
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const userId = await requireUserId();
@@ -23,7 +23,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           data: {
             sessionId: session.id,
             key,
-            enabled: false,
+            enabled: isDefaultEnabled(key),
             settings: JSON.stringify(PLUGIN_DEFAULTS[key]),
           },
         });

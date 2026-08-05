@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/admin';
 import AdminSessionsManager from '@/components/admin/AdminSessionsManager';
+import ShardPluginEngineEditor from '@/components/admin/ShardPluginEngineEditor';
 
 export default async function ShardDetailPage({ params }: { params: { id: string } }) {
   const admin = await requireAdmin();
@@ -18,6 +19,9 @@ export default async function ShardDetailPage({ params }: { params: { id: string
       </Link>
       <h1 className="mt-2 text-xl font-semibold capitalize">{shard.label || shard.url}</h1>
       <p className="mt-1 text-sm text-slate-400">{shard.url}</p>
+      <div className="mt-6">
+        <ShardPluginEngineEditor shardId={shard.id} initialValue={shard.pluginEngineUrl} />
+      </div>
       <div className="mt-6">
         <AdminSessionsManager
           apiUrl={`/api/admin/shards/${shard.id}/sessions`}

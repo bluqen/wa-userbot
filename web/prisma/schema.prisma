@@ -74,6 +74,14 @@ model GatewayShard {
   label     String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+  // The plugin-engine instance this gateway is paired with. Purely
+  // informational -- gateway reads its own PLUGIN_ENGINE_URL from its own
+  // Render env var, not from this row, so nothing here changes runtime
+  // behavior. Exists so the admin panel can show (and catch a mistake in)
+  // the pairing when each shard is given its own dedicated plugin engine
+  // instead of all shards sharing one, which made that one instance a
+  // single point of overload no matter how many gateway shards existed.
+  pluginEngineUrl String?
 }
 
 // Generic, reusable persisted scheduler. A row means "run this typed action

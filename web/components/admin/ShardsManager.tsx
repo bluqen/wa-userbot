@@ -11,6 +11,7 @@ type GatewayShard = {
   label: string | null;
   active: boolean;
   createdAt: string;
+  pluginEngineUrl: string | null;
 };
 
 type EnvShard = {
@@ -24,6 +25,7 @@ export default function ShardsManager() {
   const [loading, setLoading] = useState(true);
   const [url, setUrl] = useState('');
   const [label, setLabel] = useState('');
+  const [pluginEngineUrl, setPluginEngineUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
@@ -43,11 +45,11 @@ export default function ShardsManager() {
     fetchShards();
   }, [fetchShards]);
 
-  async function createShard(shardUrl: string, shardLabel: string) {
+  async function createShard(shardUrl: string, shardLabel: string, shardPluginEngineUrl?: string) {
     const res = await fetch('/api/admin/shards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: shardUrl, label: shardLabel }),
+      body: JSON.stringify({ url: shardUrl, label: shardLabel, pluginEngineUrl: shardPluginEngineUrl }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -60,9 +62,10 @@ export default function ShardsManager() {
     setError(null);
     setSubmitting(true);
     try {
-      await createShard(url, label);
+      await createShard(url, label, pluginEngineUrl);
       setUrl('');
       setLabel('');
+      setPluginEngineUrl('');
       fetchShards();
     } catch (err: any) {
       setError(err.message);
@@ -120,6 +123,17 @@ export default function ShardsManager() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="blank = auto-named"
+            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
+          />
+        </div>
+        <div className="min-w-[240px] flex-1">
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+            Plugin engine URL (optional)
+          </label>
+          <input
+            value={pluginEngineUrl}
+            onChange={(e) => setPluginEngineUrl(e.target.value)}
+            placeholder="blank = shares the default instance"
             className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none ring-violet-500/50 focus:ring-2"
           />
         </div>
@@ -181,6 +195,14 @@ export default function ShardsManager() {
                 {shard.label && (
                   <p className="mt-0.5 truncate text-sm text-slate-400">{shard.url}</p>
                 )}
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  Plugin engine:{' '}
+                  {shard.pluginEngineUrl ? (
+                    shard.pluginEngineUrl
+                  ) : (
+                    <span className="text-amber-500">not paired -- sharing the default instance</span>
+                  )}
+                </p>
               </Link>
               <div className="flex flex-wrap items-center gap-2">
                 <span

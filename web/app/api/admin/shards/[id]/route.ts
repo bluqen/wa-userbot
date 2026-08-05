@@ -9,8 +9,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const shard = await prisma.gatewayShard.findUnique({ where: { id: params.id } });
   if (!shard) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const { url, label, active } = await req.json();
-  const data: { url?: string; label?: string | null; active?: boolean } = {};
+  const { url, label, active, pluginEngineUrl } = await req.json();
+  const data: { url?: string; label?: string | null; active?: boolean; pluginEngineUrl?: string | null } = {};
 
   if (url !== undefined) {
     if (typeof url !== 'string' || !url.trim()) {
@@ -28,6 +28,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   if (active !== undefined) {
     data.active = Boolean(active);
+  }
+  if (pluginEngineUrl !== undefined) {
+    if (typeof pluginEngineUrl === 'string' && pluginEngineUrl.trim()) {
+      try {
+        new URL(pluginEngineUrl.trim());
+      } catch {
+        return NextResponse.json({ error: 'pluginEngineUrl must be a valid URL' }, { status: 400 });
+      }
+      data.pluginEngineUrl = pluginEngineUrl.trim();
+    } else {
+      data.pluginEngineUrl = null;
+    }
   }
 
   try {

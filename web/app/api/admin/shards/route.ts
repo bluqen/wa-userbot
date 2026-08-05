@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { url, label } = await req.json();
+  const { url, label, pluginEngineUrl } = await req.json();
   if (typeof url !== 'string' || !url.trim()) {
     return NextResponse.json({ error: 'url is required' }, { status: 400 });
   }
@@ -38,6 +38,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'url must be a valid URL' }, { status: 400 });
   }
 
+  let trimmedPluginEngineUrl: string | null = null;
+  if (typeof pluginEngineUrl === 'string' && pluginEngineUrl.trim()) {
+    try {
+      new URL(pluginEngineUrl.trim());
+    } catch {
+      return NextResponse.json({ error: 'pluginEngineUrl must be a valid URL' }, { status: 400 });
+    }
+    trimmedPluginEngineUrl = pluginEngineUrl.trim();
+  }
+
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   const existing = await prisma.gatewayShard.findMany({ select: { label: true } });
   const finalLabel =
@@ -45,7 +55,7 @@ export async function POST(req: Request) {
 
   try {
     const shard = await prisma.gatewayShard.create({
-      data: { url: url.trim(), label: finalLabel },
+      data: { url: url.trim(), label: finalLabel, pluginEngineUrl: trimmedPluginEngineUrl },
     });
     return NextResponse.json({ shard });
   } catch (err: any) {

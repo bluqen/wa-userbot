@@ -20,7 +20,8 @@ export type PluginKey =
   | 'media_convert'
   | 'qr'
   | 'translate'
-  | 'timer';
+  | 'timer'
+  | 'session_status';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -45,6 +46,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'qr',
   'translate',
   'timer',
+  'session_status',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -158,6 +160,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'A live countdown with "!timer 5m" -- or "!timer 1h30m".',
     icon: '⏳',
   },
+  session_status: {
+    name: 'Session Info',
+    description: 'Check this session\'s connection and plugin count with "!status".',
+    icon: '📶',
+  },
 };
 
 export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
@@ -240,6 +247,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   timer: {
     replyInGroups: false,
   },
+  session_status: {},
 };
 
 export function isPluginKey(key: string): key is PluginKey {

@@ -61,6 +61,7 @@ const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
 const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
+const STATUS_COMMAND = /^!status$/i;
 
 // "!timer 5m", "!timer 90s", "!timer 1h30m", or a bare number of minutes
 // ("!timer 5"). Multiple units combine (h/m/s in any order), matching how
@@ -246,6 +247,11 @@ function deriveAiAskConfig(plugins) {
 
 function deriveMediaConvertConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'media_convert');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveStatusConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'session_status');
   return { enabled: !!(entry && entry.enabled) };
 }
 
@@ -1198,6 +1204,33 @@ export async function startSession(userId, phoneNumber) {
     activeTimers.set(timerId, handle);
   }
 
+  // "!status" -- owner-only readout of this session's own state: which
+  // gateway/plugin-engine pair it's running against, how long the socket
+  // has been up, and how many plugins are currently enabled. Deliberately
+  // scoped to this session only, not other shards or accounts -- there's
+  // no WhatsApp-side concept of "admin" anywhere in this codebase, so a
+  // real cross-shard status command needs its own access-control decision
+  // before it's worth building.
+  async function handleStatusCommand(userId, sock, msg) {
+    const plugins = await refreshPluginConfigs();
+    const enabledCount = plugins.filter((p) => p.enabled).length;
+    const uptime = formatTimerRemaining(Date.now() - entry.createdAt);
+    // Read straight from this process's own env, same as index.js and
+    // pluginClient.js each already do independently -- the gateway never
+    // looks up its own GatewayShard row, it's just told which plugin
+    // engine to use via PLUGIN_ENGINE_URL at deploy time.
+    const gatewayUrl = process.env.PUBLIC_URL || '(PUBLIC_URL not set)';
+    const pluginEngineUrl = process.env.PLUGIN_ENGINE_URL || 'http://localhost:8000 (default, unpaired)';
+
+    const lines = [
+      `🟢 Connected -- up ${uptime}`,
+      `🧩 ${enabledCount}/${plugins.length} plugins enabled`,
+      `🌐 Gateway: ${gatewayUrl}`,
+      `🔌 Plugin engine: ${pluginEngineUrl}`,
+    ];
+    await sendCommandFeedback(sock, userId, msg, lines.join('\n'), 'status');
+  }
+
   // Both anti-delete and notes need to know their own settings, but
   // neither is worth a fresh network round trip on every single message --
   // anti-delete's check only matters at the (rare) moment of a deletion,
@@ -1721,6 +1754,14 @@ export async function startSession(userId, phoneNumber) {
         if (saveStickerMatch) {
           await handleSaveStickerCommand(userId, sock, msg, saveStickerMatch[1]);
           continue;
+        }
+
+        if (STATUS_COMMAND.test(text)) {
+          const status = deriveStatusConfig(await refreshPluginConfigs());
+          if (status.enabled) {
+            await handleStatusCommand(userId, sock, msg);
+            continue;
+          }
         }
 
         const saveNoteMatch = text.match(SAVE_NOTE_COMMAND);

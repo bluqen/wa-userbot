@@ -34,6 +34,8 @@ import {
   stickerToVideo,
   addMemeText,
   applyVoiceEffect,
+  generateQrCode,
+  resolveQrColor,
 } from './mediaConvert.js';
 
 const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
@@ -57,6 +59,7 @@ const PLUGIN_COMMAND_RE = /^\/(song|imagine|pinterest|8ball|rps|trivia)\b/i;
 
 const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
+const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "/savenote", and voice-note
@@ -173,6 +176,12 @@ function deriveMediaConvertConfig(plugins) {
 // replyInGroups gating has to be replicated here.
 function deriveGamesConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'games');
+  if (!entry || !entry.enabled) return { enabled: false, replyInGroups: false };
+  return { enabled: true, replyInGroups: !!entry.settings?.replyInGroups };
+}
+
+function deriveQrConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'qr');
   if (!entry || !entry.enabled) return { enabled: false, replyInGroups: false };
   return { enabled: true, replyInGroups: !!entry.settings?.replyInGroups };
 }
@@ -664,6 +673,45 @@ async function handleVoiceEffectCommand(userId, sock, msg, effectName) {
   } catch (err) {
     console.error(`[${userId}] /${effectName} failed:`, describeFetchError(err));
     await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't apply that effect: ${err.message}` }, { quoted: msg });
+  }
+}
+
+// "!qr <text or link>", "!qr <color> <text or link>", or
+// "!qr <color1> <color2> <text or link>" for a gradient. Up to the first
+// two whitespace-separated words are consumed as colors if (and only if)
+// they resolve to a known one -- whatever's left, rejoined, is the actual
+// QR content, so "!qr blue" alone (nothing left over) correctly encodes
+// the literal text "blue" rather than erroring on "no content given".
+async function handleQrCommand(userId, sock, msg, rawArgs) {
+  const parts = (rawArgs || '').trim().split(/\s+/);
+  const colors = [];
+  while (parts.length > 1 && colors.length < 2) {
+    const resolved = resolveQrColor(parts[0]);
+    if (!resolved) break;
+    colors.push(resolved);
+    parts.shift();
+  }
+  const content = parts.join(' ').trim();
+
+  if (!content) {
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      {
+        text:
+          'Usage: !qr <text or link>, !qr <color> <text or link>, or ' +
+          '!qr <color> <color> <text or link> for a gradient.',
+      },
+      { quoted: msg },
+    );
+    return;
+  }
+
+  try {
+    const png = await generateQrCode(content, colors);
+    await sock.sendMessage(msg.key.remoteJid, { image: png }, { quoted: msg });
+  } catch (err) {
+    console.error(`[${userId}] !qr failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't generate that QR code: ${err.message}` }, { quoted: msg });
   }
 }
 
@@ -1440,6 +1488,20 @@ export async function startSession(userId, phoneNumber) {
               continue;
             }
             await handleVoiceEffectCommand(userId, sock, msg, voiceEffectMatch[1].toLowerCase());
+            continue;
+          }
+        }
+      }
+
+      // "!qr" -- own toggle, same shape as the meme/voice-effect block
+      // above (usable by anyone, owner included, gated by its own
+      // enabled+replyInGroups).
+      if (!aiSentMessageIds.has(msg.key.id)) {
+        const qrMatch = text.match(QR_COMMAND);
+        if (qrMatch) {
+          const qr = deriveQrConfig(await refreshPluginConfigs());
+          if (qr.enabled && (!isGroupChat || qr.replyInGroups)) {
+            await handleQrCommand(userId, sock, msg, qrMatch[1]);
             continue;
           }
         }

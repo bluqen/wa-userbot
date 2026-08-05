@@ -17,7 +17,8 @@ export type PluginKey =
   | 'imagine'
   | 'pinterest'
   | 'ai_ask'
-  | 'media_convert';
+  | 'media_convert'
+  | 'qr';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -39,6 +40,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'pinterest',
   'ai_ask',
   'media_convert',
+  'qr',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -137,6 +139,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'Converts between images, gifs, and stickers.',
     icon: '🔄',
   },
+  qr: {
+    name: 'QR Codes',
+    description: 'Turns any link or text into a scannable QR code.',
+    icon: '🔳',
+  },
 };
 
 export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
@@ -210,6 +217,9 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   },
   ai_ask: {},
   media_convert: {},
+  qr: {
+    replyInGroups: false,
+  },
 };
 
 export function isPluginKey(key: string): key is PluginKey {

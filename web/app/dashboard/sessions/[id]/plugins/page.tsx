@@ -33,6 +33,7 @@ import PinterestSettings, {
 } from '@/components/plugins/PinterestSettings';
 import AiAskSettings from '@/components/plugins/AiAskSettings';
 import MediaConvertSettings from '@/components/plugins/MediaConvertSettings';
+import QrSettings, { type QrSettingsValue } from '@/components/plugins/QrSettings';
 
 type PluginConfig = {
   key: string;
@@ -181,6 +182,12 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               )}
               {plugin.key === 'ai_ask' && <AiAskSettings />}
               {plugin.key === 'media_convert' && <MediaConvertSettings />}
+              {plugin.key === 'qr' && (
+                <QrSettings
+                  value={plugin.settings as QrSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
             </PluginCard>
           ))
         )}

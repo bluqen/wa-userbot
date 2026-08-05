@@ -5,6 +5,7 @@ import path from 'path';
 
 import ffmpegPath from 'ffmpeg-static';
 import ffmpeg from 'fluent-ffmpeg';
+import QRCode from 'qrcode';
 import sharp from 'sharp';
 
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -230,4 +231,93 @@ export async function applyVoiceEffect(buffer, effectName) {
     const command = ffmpeg(input).audioFilters(filter).outputOptions(['-c:a', 'libopus', '-b:a', '32k']);
     return runFfmpeg(command, output);
   });
+}
+
+// Named colors accepted by "/!qr <color> ..." -- deliberately a small fixed
+// allowlist rather than passing the user's word straight into the SVG's
+// fill attribute: an SVG string is XML, and an unvalidated attribute value
+// is an injection risk (e.g. a color argument like `red"/><script>...`
+// breaking out of the attribute). Plain #rrggbb hex is accepted too, also
+// validated by strict regex for the same reason.
+const QR_NAMED_COLORS = {
+  black: '#000000',
+  white: '#ffffff',
+  red: '#ef4444',
+  orange: '#f97316',
+  yellow: '#eab308',
+  green: '#22c55e',
+  blue: '#3b82f6',
+  purple: '#a855f7',
+  violet: '#8b5cf6',
+  pink: '#ec4899',
+  teal: '#14b8a6',
+  cyan: '#06b6d4',
+  gray: '#6b7280',
+  grey: '#6b7280',
+  brown: '#92400e',
+  gold: '#f59e0b',
+  lime: '#84cc16',
+  indigo: '#6366f1',
+  navy: '#1e3a8a',
+  maroon: '#7f1d1d',
+  silver: '#94a3b8',
+};
+
+export function resolveQrColor(word) {
+  const lower = (word || '').toLowerCase();
+  if (QR_NAMED_COLORS[lower]) return QR_NAMED_COLORS[lower];
+  if (/^#[0-9a-f]{6}$/i.test(word || '')) return word;
+  return null;
+}
+
+const QR_MODULE_PX = 10;
+// Standard QR "quiet zone" -- the blank margin scanners rely on to find the
+// code's edges. Skipping it is a common reason a generated QR fails to
+// scan even though the pattern itself is correct.
+const QR_QUIET_ZONE_MODULES = 4;
+const MAX_QR_TEXT_LENGTH = 1000;
+
+// Generates a QR code as a PNG, optionally recolored (one color) or with a
+// gradient fill (two colors) instead of the default plain black. Renders
+// the raw module matrix as an SVG grid rather than relying on the
+// `qrcode` package's own PNG renderer, since that only supports a single
+// flat color -- the same "build the SVG by hand, rasterize with sharp"
+// approach already used for meme captions above.
+export async function generateQrCode(text, colors) {
+  const content = (text || '').slice(0, MAX_QR_TEXT_LENGTH);
+  const qr = QRCode.create(content, { errorCorrectionLevel: 'M' });
+  const { size, data } = qr.modules;
+  const totalModules = size + QR_QUIET_ZONE_MODULES * 2;
+  const px = totalModules * QR_MODULE_PX;
+
+  let fill = '#000000';
+  let defs = '';
+  if (colors?.length === 1) {
+    fill = colors[0];
+  } else if (colors?.length >= 2) {
+    fill = 'url(#qr-fill)';
+    defs = `<defs><linearGradient id="qr-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${colors[0]}" />
+      <stop offset="100%" stop-color="${colors[1]}" />
+    </linearGradient></defs>`;
+  }
+
+  const rects = [];
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      if (data[row * size + col]) {
+        const x = (col + QR_QUIET_ZONE_MODULES) * QR_MODULE_PX;
+        const y = (row + QR_QUIET_ZONE_MODULES) * QR_MODULE_PX;
+        rects.push(`<rect x="${x}" y="${y}" width="${QR_MODULE_PX}" height="${QR_MODULE_PX}" fill="${fill}" />`);
+      }
+    }
+  }
+
+  const svg = `<svg width="${px}" height="${px}" xmlns="http://www.w3.org/2000/svg">
+    ${defs}
+    <rect width="${px}" height="${px}" fill="white" />
+    ${rects.join('')}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
 }

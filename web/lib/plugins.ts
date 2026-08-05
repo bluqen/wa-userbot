@@ -19,7 +19,8 @@ export type PluginKey =
   | 'ai_ask'
   | 'media_convert'
   | 'qr'
-  | 'translate';
+  | 'translate'
+  | 'timer';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -43,6 +44,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'media_convert',
   'qr',
   'translate',
+  'timer',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -151,6 +153,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'Instant translation with "!tl es" or "!translate spanish".',
     icon: '🌐',
   },
+  timer: {
+    name: 'Timers',
+    description: 'A live countdown with "!timer 5m" -- or "!timer 1h30m".',
+    icon: '⏳',
+  },
 };
 
 export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
@@ -228,6 +235,9 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     replyInGroups: false,
   },
   translate: {
+    replyInGroups: false,
+  },
+  timer: {
     replyInGroups: false,
   },
 };

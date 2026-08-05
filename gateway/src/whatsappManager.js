@@ -60,6 +60,74 @@ const PLUGIN_COMMAND_RE = /^(?:\/(?:song|imagine|pinterest|8ball|rps|trivia)|!(?
 const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
 const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
+const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
+
+// "!timer 5m", "!timer 90s", "!timer 1h30m", or a bare number of minutes
+// ("!timer 5"). Multiple units combine (h/m/s in any order), matching how
+// people actually type durations rather than requiring one strict format.
+function parseTimerDuration(input) {
+  const cleaned = (input || '').trim();
+  if (!cleaned) return null;
+
+  // Alternatives listed longest-first within each unit, since regex
+  // alternation takes the first one that matches rather than the longest
+  // -- "min" before "m" would otherwise never get a chance to match, and
+  // "5minutes" would silently parse as "5m" plus leftover garbage.
+  //
+  // `(?![a-z])` instead of `\b`: a trailing \b fails between a unit
+  // letter and a following digit (both count as "word" characters to
+  // regex), which broke a compound duration typed with no spaces --
+  // "1h30m" matched only "30m" and silently dropped the "1h". The
+  // lookahead only rejects being followed by another *letter* (so a
+  // stray match inside an unrelated word like "milk" still can't
+  // happen), which is the only thing that actually needed rejecting.
+  const unitRe = /(\d+)\s*(hours|hour|hrs|hr|h|minutes|minute|mins|min|m|seconds|second|secs|sec|s)(?![a-z])/gi;
+  let totalMs = 0;
+  let matchedAny = false;
+  let m;
+  while ((m = unitRe.exec(cleaned))) {
+    matchedAny = true;
+    const value = Number(m[1]);
+    const unit = m[2][0].toLowerCase();
+    if (unit === 'h') totalMs += value * 3600000;
+    else if (unit === 'm') totalMs += value * 60000;
+    else totalMs += value * 1000;
+  }
+  if (matchedAny) return totalMs;
+
+  if (/^\d+$/.test(cleaned)) return Number(cleaned) * 60000; // bare number = minutes
+  return null;
+}
+
+function formatTimerRemaining(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function buildTimerProgressBar(fraction) {
+  const totalSegments = 10;
+  const filled = Math.max(0, Math.min(totalSegments, Math.round(fraction * totalSegments)));
+  return '▓'.repeat(filled) + '░'.repeat(totalSegments - filled);
+}
+
+// <=10min gets a "live" countdown (frequent edits, progress bar); longer
+// timers fall back to sparse edits instead -- editing every few seconds
+// for, say, an 8-hour timer would be both pointless (nobody's watching a
+// countdown that long tick by) and enough repeated edits over that
+// duration to look like abuse to WhatsApp.
+const ANIMATED_TIMER_MAX_MS = 10 * 60 * 1000;
+const ANIMATED_TIMER_INTERVAL_MS = 5000;
+const MIN_TIMER_DURATION_MS = 10 * 1000;
+const MAX_TIMER_DURATION_MS = 24 * 60 * 60 * 1000;
+// A concurrency cap, not just a duration cap: without one, a burst of
+// "!timer" commands spawns unbounded setIntervals for this session --
+// exactly the class of unbounded per-session growth that has already
+// caused a real OOM crash loop in this codebase (see lidToPhoneJid).
+const MAX_CONCURRENT_TIMERS = 3;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "/savenote", and voice-note
@@ -194,6 +262,12 @@ function deriveGamesConfig(plugins) {
 
 function deriveQrConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'qr');
+  if (!entry || !entry.enabled) return { enabled: false, replyInGroups: false };
+  return { enabled: true, replyInGroups: !!entry.settings?.replyInGroups };
+}
+
+function deriveTimerConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'timer');
   if (!entry || !entry.enabled) return { enabled: false, replyInGroups: false };
   return { enabled: true, replyInGroups: !!entry.settings?.replyInGroups };
 }
@@ -1033,6 +1107,97 @@ export async function startSession(userId, phoneNumber) {
     }
   }
 
+  // Active "!timer" countdowns for this session -- capped (see
+  // MAX_CONCURRENT_TIMERS) so a burst of commands can't spawn unbounded
+  // setIntervals, and cleared entirely on disconnect (see the 'close'
+  // handler below): a stale interval still firing against a dead/replaced
+  // socket is wasted work and noisy errors, not something worth surviving
+  // a reconnect for. In-memory only, not persisted -- losing a countdown
+  // mid-way on a redeploy is an acceptable tradeoff for something this
+  // short-lived (max 24h, typically minutes).
+  const activeTimers = new Map(); // message id of the timer message -> interval handle
+
+  function clearAllTimers() {
+    for (const handle of activeTimers.values()) clearInterval(handle);
+    activeTimers.clear();
+  }
+
+  async function handleTimerCommand(userId, sock, msg, rawArgs) {
+    const durationMs = parseTimerDuration(rawArgs);
+    if (durationMs === null) {
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: 'Usage: !timer <duration>, e.g. "!timer 5m", "!timer 90s", or "!timer 1h30m".' },
+        { quoted: msg },
+      );
+      return;
+    }
+    if (durationMs < MIN_TIMER_DURATION_MS) {
+      await sock.sendMessage(msg.key.remoteJid, { text: 'Shortest timer is 10 seconds.' }, { quoted: msg });
+      return;
+    }
+    if (durationMs > MAX_TIMER_DURATION_MS) {
+      await sock.sendMessage(msg.key.remoteJid, { text: 'Longest timer is 24 hours.' }, { quoted: msg });
+      return;
+    }
+    if (activeTimers.size >= MAX_CONCURRENT_TIMERS) {
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: `Only ${MAX_CONCURRENT_TIMERS} timers can run at once -- wait for one to finish first.` },
+        { quoted: msg },
+      );
+      return;
+    }
+
+    const isAnimated = durationMs <= ANIMATED_TIMER_MAX_MS;
+    const tickMs = isAnimated
+      ? ANIMATED_TIMER_INTERVAL_MS
+      : Math.min(5 * 60000, Math.max(30000, Math.floor(durationMs / 20)));
+    const endsAt = Date.now() + durationMs;
+
+    const renderTimer = (remainingMs) =>
+      isAnimated
+        ? `⏳ ${formatTimerRemaining(remainingMs)}\n${buildTimerProgressBar(remainingMs / durationMs)}`
+        : `⏳ ${formatTimerRemaining(remainingMs)} remaining`;
+
+    let sent;
+    try {
+      sent = await sock.sendMessage(msg.key.remoteJid, { text: renderTimer(durationMs) }, { quoted: msg });
+    } catch (err) {
+      console.error(`[${userId}] !timer failed to start:`, err.message);
+      return;
+    }
+    const timerId = sent?.key?.id;
+    if (!timerId) return; // nothing to edit going forward -- not worth starting a loop for
+
+    // Guards against overlapping ticks: an edit taking longer than tickMs
+    // (unlikely at 5s+, but not impossible under load) would otherwise let
+    // setInterval fire the next tick before the current one's await
+    // resolves.
+    let ticking = false;
+    const handle = setInterval(async () => {
+      if (ticking) return;
+      ticking = true;
+      try {
+        const remaining = endsAt - Date.now();
+        if (remaining <= 0) {
+          clearInterval(activeTimers.get(timerId));
+          activeTimers.delete(timerId);
+          await sock.sendMessage(msg.key.remoteJid, { text: "⏰ Time's up!", edit: sent.key });
+          return;
+        }
+        await sock.sendMessage(msg.key.remoteJid, { text: renderTimer(remaining), edit: sent.key });
+      } catch (err) {
+        console.error(`[${userId}] !timer tick failed:`, err.message);
+        clearInterval(activeTimers.get(timerId));
+        activeTimers.delete(timerId);
+      } finally {
+        ticking = false;
+      }
+    }, tickMs);
+    activeTimers.set(timerId, handle);
+  }
+
   // Both anti-delete and notes need to know their own settings, but
   // neither is worth a fresh network round trip on every single message --
   // anti-delete's check only matters at the (rare) moment of a deletion,
@@ -1286,6 +1451,7 @@ export async function startSession(userId, phoneNumber) {
         .catch((err) => console.error(`[${userId}] failed to fetch blocklist:`, err.message));
     } else if (connection === 'close') {
       clearInterval(lidRefreshInterval);
+      clearAllTimers();
       const statusCode =
         lastDisconnect?.error instanceof Boom
           ? lastDisconnect.error.output?.statusCode
@@ -1514,6 +1680,18 @@ export async function startSession(userId, phoneNumber) {
           const qr = deriveQrConfig(await refreshPluginConfigs());
           if (qr.enabled && (!isGroupChat || qr.replyInGroups)) {
             await handleQrCommand(userId, sock, msg, qrMatch[1]);
+            continue;
+          }
+        }
+      }
+
+      // "!timer" -- same shape again.
+      if (!aiSentMessageIds.has(msg.key.id)) {
+        const timerMatch = text.match(TIMER_COMMAND);
+        if (timerMatch) {
+          const timer = deriveTimerConfig(await refreshPluginConfigs());
+          if (timer.enabled && (!isGroupChat || timer.replyInGroups)) {
+            await handleTimerCommand(userId, sock, msg, timerMatch[1]);
             continue;
           }
         }

@@ -37,6 +37,7 @@ import QrSettings, { type QrSettingsValue } from '@/components/plugins/QrSetting
 import TranslateSettings, {
   type TranslateSettingsValue,
 } from '@/components/plugins/TranslateSettings';
+import TimerSettings, { type TimerSettingsValue } from '@/components/plugins/TimerSettings';
 
 type PluginConfig = {
   key: string;
@@ -194,6 +195,12 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               {plugin.key === 'translate' && (
                 <TranslateSettings
                   value={plugin.settings as TranslateSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
+              {plugin.key === 'timer' && (
+                <TimerSettings
+                  value={plugin.settings as TimerSettingsValue}
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}

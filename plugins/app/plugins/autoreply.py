@@ -2,11 +2,19 @@ import time
 from typing import Optional, Tuple
 
 from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+from ..stale_cache import maybe_sweep
 
 # (session_id, contact_jid) -> unix timestamp of the last auto-reply sent.
 # In-memory and per-process -- resets on restart, fine for a single engine
 # instance. Move to Redis/DB if this ever runs as multiple replicas.
+#
+# Without a periodic sweep this grows by one entry for every contact ever
+# auto-replied to, for the entire lifetime of this process -- the same
+# unbounded-growth shape as ai_reply.py/ai_write.py/leads.py, which were
+# fixed for exactly this; this one was missed in that pass. See
+# stale_cache.py.
 _last_replied: dict[Tuple[str, str], float] = {}
+_LAST_REPLIED_STALE_AFTER_SECONDS = 24 * 60 * 60
 
 
 class AutoReplyPlugin(Plugin):
@@ -34,6 +42,8 @@ class AutoReplyPlugin(Plugin):
             last = _last_replied.get((ctx.user_id, ctx.from_jid))
             if last and (time.time() - last) < cooldown_minutes * 60:
                 return False
+
+        maybe_sweep(_last_replied, lambda ts: time.time() - ts > _LAST_REPLIED_STALE_AFTER_SECONDS)
 
         return True
 

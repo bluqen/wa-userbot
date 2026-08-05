@@ -240,9 +240,8 @@ export default function AIReplySettings({
         <span>
           React to incoming stickers
           <span className="block text-xs text-slate-500">
-            When someone sends a sticker with no caption, the AI reacts to it directly (needs a
-            Gemini key configured for real image understanding -- otherwise it still replies, just
-            without actually seeing the sticker).
+            When someone sends a sticker with no caption, the AI looks at it and reacts naturally
+            instead of staying quiet.
           </span>
         </span>
         <input

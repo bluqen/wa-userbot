@@ -32,9 +32,9 @@ export default function LeadsSettings({
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
-        Reads direct-message conversations for name, need, budget, and timeline signals, and logs
-        a short private summary per contact -- nothing is ever sent to the customer. Requires an AI
-        provider to be configured, same as AI Reply.
+        Quietly reads your DMs for useful signals -- a name, what someone needs, their budget,
+        their timeline -- and keeps a short private note per contact below. Nothing is ever sent
+        to the customer, it&apos;s just for you.
       </div>
 
       <div>

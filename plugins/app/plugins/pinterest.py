@@ -58,7 +58,7 @@ class PinterestPlugin(Plugin):
             return Reply(text="/pinterest isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not PEXELS_API_KEY:
-            return Reply(text="/pinterest isn't set up yet -- the bot owner needs to add a Pexels API key.")
+            return Reply(text="/pinterest isn't ready yet -- try again later.")
 
         query = (match.group(1) or "").strip()[:MAX_QUERY_LENGTH]
         if not query:

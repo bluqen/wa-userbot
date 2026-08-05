@@ -65,7 +65,7 @@ class SongPlugin(Plugin):
             return Reply(text="/song isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not JAMENDO_CLIENT_ID:
-            return Reply(text="/song isn't set up yet -- the bot owner needs to add a Jamendo client ID.")
+            return Reply(text="/song isn't ready yet -- try again later.")
 
         query = (match.group(1) or "").strip()
         if not query:

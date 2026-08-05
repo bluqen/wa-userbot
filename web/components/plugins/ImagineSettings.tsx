@@ -29,10 +29,9 @@ export default function ImagineSettings({
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
-        Anyone chatting with the bot can message{' '}
-        <code className="rounded bg-surface-raised px-1">/imagine &lt;description&gt;</code> to get
-        back an AI-generated image. Free, keyless image generation via Pollinations.ai -- no API
-        key needed.
+        Anyone chatting with the bot can send{' '}
+        <code className="rounded bg-surface-raised px-1">/imagine a cat wearing sunglasses</code>{' '}
+        and get back a picture made just for them. Works right away, nothing to set up.
       </div>
 
       <label className="flex items-center justify-between gap-4 text-sm">

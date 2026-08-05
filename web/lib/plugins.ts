@@ -108,8 +108,8 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     icon: '👁️',
   },
   sudo: {
-    name: 'Sudo Numbers',
-    description: 'Let trusted numbers use Tag Everyone and Polls for you.',
+    name: 'Helpers',
+    description: 'Let trusted numbers tag everyone and make polls for you.',
     icon: '🛡️',
   },
   leads: {
@@ -129,7 +129,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   ai_ask: {
     name: 'AI Ask',
-    description: 'One-off AI answer by replying "!ai" to any message.',
+    description: 'Quick AI answers on demand with "!ai", anywhere.',
     icon: '💡',
   },
   media_convert: {

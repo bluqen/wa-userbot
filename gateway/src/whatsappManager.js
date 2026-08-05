@@ -878,6 +878,38 @@ function scheduleReconnect(userId, phoneNumber, attempt) {
   }, delay);
 }
 
+// Baileys' fetchLatestBaileysVersion() hits raw.githubusercontent.com with
+// no timeout on the request at all -- it used to be called fresh inside
+// startSession() on every single (re)connect, for every session. A slow or
+// rate-limited response from GitHub could silently stall that call
+// indefinitely, and since scheduleReconnect's backoff only kicks in once
+// startSession() actually *fails*, a hang here doesn't fail fast -- it just
+// sits there, looking exactly like "the bot stopped working" from the
+// outside while never actually erroring or retrying.
+//
+// Baileys' own fallback (used internally if the fetch throws) is just a
+// slightly-stale bundled version number -- entirely fine to connect with,
+// not a real error condition. So this is fetched at most once per gateway
+// process lifetime and reused for every reconnect after that, removing the
+// network call from the hot reconnect path entirely. Raced against a
+// timeout so even a dead GitHub on cold start can't hang every session's
+// first connection attempt forever; FALLBACK_BAILEYS_VERSION mirrors
+// Baileys' own internal bundled default (generics.js).
+const FALLBACK_BAILEYS_VERSION = [2, 3000, 1043857760];
+const BAILEYS_VERSION_FETCH_TIMEOUT_MS = 10 * 1000;
+let cachedBaileysVersionPromise;
+function getBaileysVersion() {
+  if (!cachedBaileysVersionPromise) {
+    cachedBaileysVersionPromise = Promise.race([
+      fetchLatestBaileysVersion().then((r) => r.version),
+      new Promise((resolve) =>
+        setTimeout(() => resolve(FALLBACK_BAILEYS_VERSION), BAILEYS_VERSION_FETCH_TIMEOUT_MS),
+      ),
+    ]);
+  }
+  return cachedBaileysVersionPromise;
+}
+
 // Called from messages.upsert when a reply plugin (currently just AI Reply,
 // gated by its own allowBlocking setting) signals that this contact should
 // be blocked -- jid must be the real WhatsApp-addressing JID (msg.key.remoteJid),
@@ -1040,7 +1072,7 @@ export async function startSession(userId, phoneNumber) {
   }
 
   const { state, saveCreds } = await usePostgresAuthState(userId);
-  const { version } = await fetchLatestBaileysVersion();
+  const version = await getBaileysVersion();
 
   // WhatsApp's E2E encryption sometimes has the recipient request a retry of
   // a message it failed to decrypt (normal Signal-protocol behavior). When

@@ -69,17 +69,19 @@ const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
 const STATUS_COMMAND = /^!status(?:\s+(all))?$/i;
 const HELP_COMMAND = /^!help$/i;
 
-// Grouped by category for "!help" -- each entry's `key` is the
-// SessionPlugin key that gates it (see refreshPluginConfigs), so the menu
-// only ever lists commands that actually work for *this* session right
-// now, not a static list of everything the bot could theoretically do.
-// `key: null` means it's always available (no toggle exists for it).
+// Grouped by category for "!help" (owner-only -- see the dispatch site).
+// Every entry is always listed, on or off, each prefixed with 🟢/🔴 so the
+// owner can see at a glance what's actually live without having to open
+// the dashboard first. `key` is the SessionPlugin key that gates it (see
+// refreshPluginConfigs); `key: null` means it's always on (no toggle
+// exists for it).
 const HELP_SECTIONS = [
   {
     title: 'AI',
     entries: [
       {
         key: 'ai_ask',
+        name: 'AI Ask',
         lines: ['!ai <question> -- answers as its own reply', '!aie <question> -- same, but edits your message in place'],
       },
     ],
@@ -89,6 +91,7 @@ const HELP_SECTIONS = [
     entries: [
       {
         key: 'games',
+        name: 'Fun',
         lines: [
           '!8ball <question>',
           '!rps rock|paper|scissors',
@@ -102,14 +105,15 @@ const HELP_SECTIONS = [
   {
     title: 'MEDIA',
     entries: [
-      { key: 'qr', lines: ['!qr <text or link> -- add a color, or two for a gradient'] },
+      { key: 'qr', name: 'QR Codes', lines: ['!qr <text or link> -- add a color, or two for a gradient'] },
       {
         key: 'media_convert',
+        name: 'Sticker Maker',
         lines: ['!sticker -- reply to an image/video', '!img -- reply to a sticker', '!gif -- reply to an animated sticker'],
       },
-      { key: 'song', lines: ['!song <genre, mood, or artist>'] },
-      { key: 'imagine', lines: ['!imagine <description>'] },
-      { key: 'pinterest', lines: ['!pinterest <search term>'] },
+      { key: 'song', name: 'Song Fetcher', lines: ['!song <genre, mood, or artist>'] },
+      { key: 'imagine', name: 'Imagine', lines: ['!imagine <description>'] },
+      { key: 'pinterest', name: 'Pinterest', lines: ['!pinterest <search term>'] },
     ],
   },
   {
@@ -117,20 +121,25 @@ const HELP_SECTIONS = [
     entries: [
       {
         key: 'translate',
+        name: 'Translate',
         lines: ['!translate <language> <text>, or !tl es hello -- or reply to a message with !tl <language>'],
       },
-      { key: 'timer', lines: ['!timer <duration>, e.g. !timer 5m or !timer 1h30m'] },
-      { key: 'session_status', lines: ["!status -- this session's own connection info", '!status all -- every shard (admins only)'] },
+      { key: 'timer', name: 'Timers', lines: ['!timer <duration>, e.g. !timer 5m or !timer 1h30m'] },
+      {
+        key: 'session_status',
+        name: 'Session Info',
+        lines: ["!status -- this session's own connection info", '!status all -- every shard (admins only)'],
+      },
     ],
   },
   {
     title: 'NOTES & GROUPS',
     entries: [
-      { key: null, lines: ['!savesticker <tag> -- reply to a sticker (owner only)'] },
-      { key: 'notes', lines: ['!savenote <name> -- reply to any message (owner only)', '#name -- recall a saved note anywhere'] },
-      { key: 'broadcast', lines: ['!addbroadcast <name> -- tag a group for broadcasts (owner only)'] },
-      { key: 'tagall', lines: ['!tagall <message> -- mention everyone in a group'] },
-      { key: 'polls', lines: ['!poll question | option1 | option2'] },
+      { key: null, name: 'Save Sticker (always on)', lines: ['!savesticker <tag> -- reply to a sticker'] },
+      { key: 'notes', name: 'Notes', lines: ['!savenote <name> -- reply to any message', '#name -- recall a saved note anywhere'] },
+      { key: 'broadcast', name: 'Broadcasts', lines: ['!addbroadcast <name> -- tag a group for broadcasts'] },
+      { key: 'tagall', name: 'Tag Everyone', lines: ['!tagall <message> -- mention everyone in a group'] },
+      { key: 'polls', name: 'Polls', lines: ['!poll question | option1 | option2'] },
     ],
   },
 ];
@@ -138,27 +147,22 @@ const HELP_SECTIONS = [
 function buildHelpCaption(plugins) {
   const enabledKeys = new Set(plugins.filter((p) => p.enabled).map((p) => p.key));
   const lines = ['┏━━━━━━━━━━━━━━━━━━┓', '┃  WHATSAFORGE MENU  ┃', '┗━━━━━━━━━━━━━━━━━━┛', ''];
-  let anySection = false;
   for (const section of HELP_SECTIONS) {
-    const sectionLines = section.entries
-      .filter((entry) => entry.key === null || enabledKeys.has(entry.key))
-      .flatMap((entry) => entry.lines);
-    if (sectionLines.length === 0) continue;
-    anySection = true;
-    lines.push(`★ ${section.title} ★`, ...sectionLines, '');
-  }
-  if (!anySection) {
-    lines.push("Nothing's turned on for this session yet -- enable plugins from the dashboard.");
+    lines.push(`★ ${section.title} ★`);
+    for (const entry of section.entries) {
+      const on = entry.key === null || enabledKeys.has(entry.key);
+      lines.push(`${on ? '🟢' : '🔴'} ${entry.name}`, ...entry.lines, '');
+    }
   }
   return lines.join('\n').trim();
 }
 
-// "!help" -- deliberately not gated by any plugin toggle (unlike every
-// other command here): hiding the menu behind a toggle nobody knows
-// exists yet is exactly backwards for a discovery command. Sent as an
-// image with the command list as its caption rather than a plain-text
-// wall, matching the "here's what I can do" banner pattern most WhatsApp
-// bots use.
+// "!help" -- owner-only (see the dispatch site, inside the fromMe branch).
+// Lists every command, live or not, rather than filtering to just what's
+// on -- the point is the owner seeing the whole toggle board at a glance,
+// not just the working subset. Sent as an image with the command list as
+// its caption rather than a plain-text wall, matching the "here's what I
+// can do" banner pattern most WhatsApp bots use.
 async function handleHelpCommand(userId, sock, msg, plugins) {
   try {
     const banner = await generateHelpBanner();
@@ -1867,15 +1871,6 @@ export async function startSession(userId, phoneNumber) {
         }
       }
 
-      // "!help" -- no toggle, no group-gating check, works for anyone
-      // anywhere. See handleHelpCommand for why.
-      if (!aiSentMessageIds.has(msg.key.id)) {
-        if (HELP_COMMAND.test(text)) {
-          await handleHelpCommand(userId, sock, msg, await refreshPluginConfigs());
-          continue;
-        }
-      }
-
       // The plugin engine only ever needs this to key config/exceptions and
       // chat history -- actual sends below still target msg.key.remoteJid
       // as-is, since that's what WhatsApp expects for this chat.
@@ -1909,6 +1904,14 @@ export async function startSession(userId, phoneNumber) {
             await handleStatusCommand(userId, sock, msg, (statusMatch[1] || '').toLowerCase());
             continue;
           }
+        }
+
+        // "!help" -- owner-only, no toggle: it's the one command that
+        // needs to work regardless of what else is configured, since it's
+        // how the owner checks what else is configured.
+        if (HELP_COMMAND.test(text)) {
+          await handleHelpCommand(userId, sock, msg, await refreshPluginConfigs());
+          continue;
         }
 
         const saveNoteMatch = text.match(SAVE_NOTE_COMMAND);

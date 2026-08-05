@@ -16,7 +16,7 @@ from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolv
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 PEXELS_SEARCH_URL = "https://api.pexels.com/v1/search"
 
-PINTEREST_COMMAND = re.compile(r"^/pinterest(?:\s+(.+))?$", re.IGNORECASE | re.DOTALL)
+PINTEREST_COMMAND = re.compile(r"^!pinterest(?:\s+(.+))?$", re.IGNORECASE | re.DOTALL)
 
 MAX_QUERY_LENGTH = 100
 RESULTS_TO_SEND = 3
@@ -25,7 +25,7 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 
 class PinterestPlugin(Plugin):
-    """Sends a few images matching "/pinterest <query>". Backed by Pexels'
+    """Sends a few images matching "!pinterest <query>". Backed by Pexels'
     stock-photo search (see note above on why not Pinterest itself).
     """
 
@@ -41,7 +41,7 @@ class PinterestPlugin(Plugin):
         # here -- see handle() below. Returning False from match() for
         # either makes the message silently fall through to whatever
         # plugin runs next (typically AI Reply), which then hallucinates
-        # an unrelated chatty response to the literal text "/pinterest
+        # an unrelated chatty response to the literal text "!pinterest
         # ...". That looks exactly like the command being broken, when
         # it's actually just blocked or unconfigured. Claiming the command
         # syntax here and explaining why in handle() instead avoids that.
@@ -55,14 +55,14 @@ class PinterestPlugin(Plugin):
         config = resolve_settings(self.config, ctx.from_jid)
         is_group = ctx.from_jid.endswith("@g.us")
         if is_group and not config.get("replyInGroups", False):
-            return Reply(text="/pinterest isn't turned on for group chats -- ask the bot owner to enable it.")
+            return Reply(text="!pinterest isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not PEXELS_API_KEY:
-            return Reply(text="/pinterest isn't ready yet -- try again later.")
+            return Reply(text="!pinterest isn't ready yet -- try again later.")
 
         query = (match.group(1) or "").strip()[:MAX_QUERY_LENGTH]
         if not query:
-            return Reply(text='Usage: /pinterest <search term>, e.g. "/pinterest cottagecore aesthetic"')
+            return Reply(text='Usage: !pinterest <search term>, e.g. "!pinterest cottagecore aesthetic"')
 
         urls = _search_images(query)
         if not urls:

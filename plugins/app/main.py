@@ -136,7 +136,7 @@ async def handle_message(msg: IncomingMessage):
     # empty turn. A sticker has no text to save at all, so this is skipped
     # entirely rather than saving an empty turn.
     # A command the owner typed themselves isn't conversation -- saving
-    # "/imagine a cat" as a user turn would just pollute the context AI
+    # "!imagine a cat" as a user turn would just pollute the context AI
     # Reply builds for that contact.
     if text and not msg.from_me:
         asyncio.create_task(save_message(msg.user_id, msg.from_jid, "user", text))
@@ -201,7 +201,7 @@ async def handle_ask(req: AskRequest):
     one-shot question-and-answer, not the ongoing conversational AI Reply
     flow. No per-session settings to fetch: the gateway already checked
     the ai_ask plugin is enabled for this session before ever calling
-    this, same as it does for /tagall and /poll.
+    this, same as it does for !tagall and !poll.
     """
     if not llm.has_provider():
         return AskResponse(answer=None)

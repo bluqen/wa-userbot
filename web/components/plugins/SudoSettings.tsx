@@ -44,8 +44,8 @@ export default function SudoSettings({
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
-        Numbers listed here can use <code className="rounded bg-surface-raised px-1">/tagall</code>{' '}
-        and <code className="rounded bg-surface-raised px-1">/poll</code> on your behalf, even
+        Numbers listed here can use <code className="rounded bg-surface-raised px-1">!tagall</code>{' '}
+        and <code className="rounded bg-surface-raised px-1">!poll</code> on your behalf, even
         though the messages aren&apos;t from your own account. No other commands are available to
         them.
       </div>

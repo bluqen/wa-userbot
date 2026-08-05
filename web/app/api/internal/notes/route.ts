@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Called by the gateway when the account owner saves a note via
-// "/savenote <name>" (see gateway/README.md). Upserts by (sessionId, name)
+// "!savenote <name>" (see gateway/README.md). Upserts by (sessionId, name)
 // -- unlike stickers, a note is meant to be one canonical named snippet,
 // so re-saving a name overwrites it rather than adding a variant.
 export async function POST(req: Request) {

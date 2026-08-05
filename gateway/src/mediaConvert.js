@@ -144,8 +144,8 @@ export async function stickerToVideo(buffer) {
 }
 
 
-// Named ffmpeg audio-filter chains for "/robot", "/deep", "/chipmunk",
-// "/echo" (see whatsappManager.js) -- asetrate changes both pitch and
+// Named ffmpeg audio-filter chains for "!robot", "!deep", "!chipmunk",
+// "!echo" (see whatsappManager.js) -- asetrate changes both pitch and
 // speed together; the matching atempo compensates speed back to the
 // original duration while keeping the pitch shift.
 const VOICE_EFFECTS = {
@@ -257,4 +257,33 @@ export async function generateQrCode(text, colors) {
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// A simple branded banner for "!help" (see whatsappManager.js) -- the
+// actual command list is the message's caption, not baked into this
+// image, so this only needs to exist once, not regenerated per request.
+// Same "build the SVG by hand, rasterize with sharp" approach as the QR
+// code and (previously) meme captions above -- no template/asset file
+// needed for one static image.
+let cachedHelpBannerPromise;
+export function generateHelpBanner() {
+  if (!cachedHelpBannerPromise) {
+    const width = 900;
+    const height = 380;
+    const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="help-bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#7c3aed" />
+          <stop offset="100%" stop-color="#1e1b4b" />
+        </linearGradient>
+      </defs>
+      <rect width="${width}" height="${height}" fill="url(#help-bg)" />
+      <text x="${width / 2}" y="${height / 2 - 8}" text-anchor="middle" font-family="Arial, sans-serif"
+        font-weight="900" font-size="68" fill="white" letter-spacing="2">WHATSAFORGE</text>
+      <text x="${width / 2}" y="${height / 2 + 50}" text-anchor="middle" font-family="Arial, sans-serif"
+        font-weight="400" font-size="26" fill="#d8b4fe">Command Menu</text>
+    </svg>`;
+    cachedHelpBannerPromise = sharp(Buffer.from(svg)).png().toBuffer();
+  }
+  return cachedHelpBannerPromise;
 }

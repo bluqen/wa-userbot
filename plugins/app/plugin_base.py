@@ -90,7 +90,7 @@ class Reply:
     # A real audio file to send alongside `text` -- see song.py.
     audio: Optional[AudioAttachment] = None
     # Real image file(s) to send alongside `text` -- see pinterest.py and
-    # imagine.py. A list since /pinterest sends a small handful at once.
+    # imagine.py. A list since !pinterest sends a small handful at once.
     images: Optional[List[ImageAttachment]] = None
 
 

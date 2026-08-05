@@ -67,7 +67,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   song: {
     name: 'Song Fetcher',
-    description: 'Sends a royalty-free track via "/song <genre>".',
+    description: 'Sends a royalty-free track via "!song <genre>".',
     icon: '🎵',
   },
   anti_delete: {
@@ -77,7 +77,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   notes: {
     name: 'Notes',
-    description: 'Save and recall snippets with "/savenote" and "#name".',
+    description: 'Save and recall snippets with "!savenote" and "#name".',
     icon: '📝',
   },
   welcome: {
@@ -102,12 +102,12 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   tagall: {
     name: 'Tag Everyone',
-    description: 'Mention every group member with "/tagall <message>".',
+    description: 'Mention every group member with "!tagall <message>".',
     icon: '📣',
   },
   polls: {
     name: 'Polls',
-    description: 'Create a poll with "/poll question | option1 | option2".',
+    description: 'Create a poll with "!poll question | option1 | option2".',
     icon: '📊',
   },
   statusview: {
@@ -127,12 +127,12 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   imagine: {
     name: 'Imagine',
-    description: 'Generates an AI image from a prompt via "/imagine".',
+    description: 'Generates an AI image from a prompt via "!imagine".',
     icon: '🪄',
   },
   pinterest: {
     name: 'Pinterest',
-    description: 'Fetches a few images for a search term via "/pinterest".',
+    description: 'Fetches a few images for a search term via "!pinterest".',
     icon: '📌',
   },
   ai_ask: {

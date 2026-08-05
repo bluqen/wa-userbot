@@ -30,7 +30,7 @@ export default function PinterestSettings({
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
         Anyone chatting with the bot can send{' '}
-        <code className="rounded bg-surface-raised px-1">/pinterest cottagecore aesthetic</code>{' '}
+        <code className="rounded bg-surface-raised px-1">!pinterest cottagecore aesthetic</code>{' '}
         and get back a handful of matching photos.
       </div>
 

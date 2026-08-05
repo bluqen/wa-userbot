@@ -70,7 +70,7 @@ web app's Postgres database, fetched per request.
   `rate_limiter.py`'s circuit breaker, which is about auto-reply loops,
   not the owner's own outgoing messages.
 - `app/plugins/song.py` -- `SongPlugin`, triggered by
-  `/song <genre, mood, or artist>` from anyone chatting with the bot.
+  `!song <genre, mood, or artist>` from anyone chatting with the bot.
   Searches Jamendo's Creative-Commons/independent-music catalog (built for
   exactly this kind of third-party redistribution, unlike ripping
   YouTube/Spotify) and sends back a track with artist/license attribution.
@@ -167,7 +167,7 @@ shape as `[[BLOCK]]`: the marker is always stripped, but `Reply.sticker_tag`
 is only set if a sticker was actually offered this turn *and* the model's
 tag matches one it was actually given (defense against both leakage and a
 hallucinated/copied tag). See `gateway/README.md`'s "Sticker capture and
-sending" for how a sticker actually gets taught (`/savesticker`) and sent.
+sending" for how a sticker actually gets taught (`!savesticker`) and sent.
 
 ## Voice notes
 

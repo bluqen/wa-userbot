@@ -123,7 +123,7 @@ to automatically unblock later; `0` means permanent.
 ## Sticker capture and sending
 
 The account owner teaches the bot a sticker by quote-replying to an
-existing sticker message with `/savesticker <tag>` -- `handleSaveStickerCommand`
+existing sticker message with `!savesticker <tag>` -- `handleSaveStickerCommand`
 builds a synthetic top-level message around the quoted content (Baileys'
 `downloadMediaMessage` needs something shaped like a real message, but a
 quoted message isn't one) and uploads it via `saveSticker()`. Confirmation
@@ -191,7 +191,7 @@ an actual deletion.
 ## Notes system
 
 Also gateway-only, same TTL-cached settings pattern as anti-delete.
-`/savenote <name>` (owner-only, `fromMe`) quote-replies to any message --
+`!savenote <name>` (owner-only, `fromMe`) quote-replies to any message --
 text or media -- to save it (`handleSaveNoteCommand`, reusing
 `downloadAnyMedia` again for the media case); re-saving a name overwrites
 it, unlike stickers. `#name` anywhere in an owner-sent message recalls it

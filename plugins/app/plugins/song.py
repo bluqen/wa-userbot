@@ -18,7 +18,7 @@ from ..plugin_base import AudioAttachment, MessageContext, Plugin, Reply, resolv
 JAMENDO_CLIENT_ID = os.environ.get("JAMENDO_CLIENT_ID", "")
 JAMENDO_SEARCH_URL = "https://api.jamendo.com/v3.0/tracks/"
 
-SONG_COMMAND = re.compile(r"^/song(?:\s+(.+))?$", re.IGNORECASE)
+SONG_COMMAND = re.compile(r"^!song(?:\s+(.+))?$", re.IGNORECASE)
 
 # Same cap the gateway applies to WhatsApp media (see whatsappManager.js) --
 # an uncapped download here would fully buffer in memory (original bytes +
@@ -30,14 +30,14 @@ MAX_TRACK_BYTES = 8 * 1024 * 1024
 
 class SongPlugin(Plugin):
     """Sends a Creative-Commons-licensed track from Jamendo's catalog when
-    someone messages "/song <genre, mood, or artist>". Deliberately not a
+    someone messages "!song <genre, mood, or artist>". Deliberately not a
     general "get me any song" tool -- Jamendo's catalog is independent/CC
     music, not mainstream commercial releases, so this only ever fetches
     and redistributes tracks that are actually licensed for it.
     """
 
     name = "song"
-    priority = 45  # ahead of ai_reply -- a /song command shouldn't get a chatty AI reply instead
+    priority = 45  # ahead of ai_reply -- a !song command shouldn't get a chatty AI reply instead
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
@@ -48,7 +48,7 @@ class SongPlugin(Plugin):
         # here -- see handle() below. Returning False from match() for
         # either makes the message silently fall through to whatever
         # plugin runs next (typically AI Reply), which then hallucinates
-        # an unrelated chatty response to the literal text "/song ...".
+        # an unrelated chatty response to the literal text "!song ...".
         # That looks exactly like the command being broken, when it's
         # actually just blocked or unconfigured. Claiming the command
         # syntax here and explaining why in handle() instead avoids that.
@@ -62,16 +62,16 @@ class SongPlugin(Plugin):
         config = resolve_settings(self.config, ctx.from_jid)
         is_group = ctx.from_jid.endswith("@g.us")
         if is_group and not config.get("replyInGroups", False):
-            return Reply(text="/song isn't turned on for group chats -- ask the bot owner to enable it.")
+            return Reply(text="!song isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not JAMENDO_CLIENT_ID:
-            return Reply(text="/song isn't ready yet -- try again later.")
+            return Reply(text="!song isn't ready yet -- try again later.")
 
         query = (match.group(1) or "").strip()
         if not query:
             return Reply(
-                text='Usage: /song <genre, mood, or artist>, e.g. "/song lofi chill" or '
-                '"/song upbeat rock"'
+                text='Usage: !song <genre, mood, or artist>, e.g. "!song lofi chill" or '
+                '"!song upbeat rock"'
             )
 
         track = _search_track(query)

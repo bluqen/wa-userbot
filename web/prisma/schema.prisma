@@ -107,7 +107,7 @@ model ScheduledTask {
 }
 
 // Stickers the account owner has taught the bot via WhatsApp itself
-// (quote-reply to a sticker with "/savesticker <tag>" -- see
+// (quote-reply to a sticker with "!savesticker <tag>" -- see
 // gateway/README.md). Multiple stickers can share the same tag on purpose
 // (e.g. several different "happy" stickers) -- saving one picks a random
 // match at send time (see the internal stickers/[sessionId]/[tag] route),
@@ -128,7 +128,7 @@ model Sticker {
 
 // Quick-recall snippets: the account owner reply-quotes any message (text
 // or media -- image, video, voice note, sticker, document) with
-// "/savenote <name>", then drops it into any conversation later with
+// "!savenote <name>", then drops it into any conversation later with
 // "#name" (see gateway/README.md). Unlike stickers, a note is meant to be
 // one canonical named snippet -- re-saving a name overwrites it rather
 // than adding a variant, so @@unique (not just an index) is right here.
@@ -166,7 +166,7 @@ model Lead {
 }
 
 // A group the owner has tagged for broadcast use by sending
-// "/addbroadcast <name>" *inside* that group (see gateway/README.md) --
+// "!addbroadcast <name>" *inside* that group (see gateway/README.md) --
 // avoids ever needing to know/type a group's opaque JID by hand. Re-using
 // a name re-tags whichever group it's sent in next, same overwrite
 // semantics as Note above.

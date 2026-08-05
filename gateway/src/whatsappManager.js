@@ -36,31 +36,139 @@ import {
   applyVoiceEffect,
   generateQrCode,
   resolveQrColor,
+  generateHelpBanner,
 } from './mediaConvert.js';
 
-const SAVE_STICKER_COMMAND = /^\/savesticker\s+(\S+)/i;
-const SAVE_NOTE_COMMAND = /^\/savenote\s+(\S+)/i;
-const ADD_BROADCAST_COMMAND = /^\/addbroadcast\s+(\S+)/i;
-const TAG_ALL_COMMAND = /^\/tagall(?:\s+([\s\S]+))?$/i;
-const POLL_COMMAND = /^\/poll\s+([\s\S]+)/i;
+// Every command uses the same "!" starter -- used to be a mix of "/" (the
+// older commands) and "!" (everything built more recently), which meant
+// remembering which prefix a given command needed. "#name" (note recall)
+// is deliberately left alone -- it's a reference shorthand dropped inline
+// into a sentence, not a command verb, so a "!" there would look wrong.
+const SAVE_STICKER_COMMAND = /^!savesticker\s+(\S+)/i;
+const SAVE_NOTE_COMMAND = /^!savenote\s+(\S+)/i;
+const ADD_BROADCAST_COMMAND = /^!addbroadcast\s+(\S+)/i;
+const TAG_ALL_COMMAND = /^!tagall(?:\s+([\s\S]+))?$/i;
+const POLL_COMMAND = /^!poll\s+([\s\S]+)/i;
 const AI_ASK_COMMAND = /^!ai(?:\s+([\s\S]+))?$/i;
 const AI_ASK_EDIT_COMMAND = /^!aie(?:\s+([\s\S]+))?$/i;
-const STICKER_CONVERT_COMMAND = /^\/sticker\b/i;
-const IMG_CONVERT_COMMAND = /^\/img\b/i;
-const GIF_CONVERT_COMMAND = /^\/gif\b/i;
+const STICKER_CONVERT_COMMAND = /^!sticker\b/i;
+const IMG_CONVERT_COMMAND = /^!img\b/i;
+const GIF_CONVERT_COMMAND = /^!gif\b/i;
 // Commands implemented as Python plugins rather than in this file (see
 // plugins/app/plugins/*.py). Everything else the owner types is handled by
 // the gateway-side handlers above, but these have to be forwarded to the
 // plugin engine -- which the fromMe branch otherwise never does, since it
 // only ever calls forwardOwnMessage (ai_write's rewrite). That meant the
-// account owner could never use their own /imagine, /pinterest, /song or
+// account owner could never use their own !imagine, !pinterest, !song or
 // Fun commands: they only ever fired for messages from other people.
-const PLUGIN_COMMAND_RE = /^(?:\/(?:song|imagine|pinterest|meme|8ball|rps|trivia)|!(?:translate|tl))\b/i;
+const PLUGIN_COMMAND_RE = /^!(?:song|imagine|pinterest|meme|8ball|rps|trivia|translate|tl)\b/i;
 
-const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
+const VOICE_EFFECT_COMMAND = /^!(robot|deep|chipmunk|echo)\b/i;
 const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
 const STATUS_COMMAND = /^!status(?:\s+(all))?$/i;
+const HELP_COMMAND = /^!help$/i;
+
+// Grouped by category for "!help" -- each entry's `key` is the
+// SessionPlugin key that gates it (see refreshPluginConfigs), so the menu
+// only ever lists commands that actually work for *this* session right
+// now, not a static list of everything the bot could theoretically do.
+// `key: null` means it's always available (no toggle exists for it).
+const HELP_SECTIONS = [
+  {
+    title: 'AI',
+    entries: [
+      {
+        key: 'ai_ask',
+        lines: ['!ai <question> -- answers as its own reply', '!aie <question> -- same, but edits your message in place'],
+      },
+    ],
+  },
+  {
+    title: 'FUN',
+    entries: [
+      {
+        key: 'games',
+        lines: [
+          '!8ball <question>',
+          '!rps rock|paper|scissors',
+          '!trivia (answer with !trivia answer <letter>)',
+          '!meme [subreddit]',
+          '!robot / !deep / !chipmunk / !echo -- reply to a voice note',
+        ],
+      },
+    ],
+  },
+  {
+    title: 'MEDIA',
+    entries: [
+      { key: 'qr', lines: ['!qr <text or link> -- add a color, or two for a gradient'] },
+      {
+        key: 'media_convert',
+        lines: ['!sticker -- reply to an image/video', '!img -- reply to a sticker', '!gif -- reply to an animated sticker'],
+      },
+      { key: 'song', lines: ['!song <genre, mood, or artist>'] },
+      { key: 'imagine', lines: ['!imagine <description>'] },
+      { key: 'pinterest', lines: ['!pinterest <search term>'] },
+    ],
+  },
+  {
+    title: 'UTILITY',
+    entries: [
+      {
+        key: 'translate',
+        lines: ['!translate <language> <text>, or !tl es hello -- or reply to a message with !tl <language>'],
+      },
+      { key: 'timer', lines: ['!timer <duration>, e.g. !timer 5m or !timer 1h30m'] },
+      { key: 'session_status', lines: ["!status -- this session's own connection info", '!status all -- every shard (admins only)'] },
+    ],
+  },
+  {
+    title: 'NOTES & GROUPS',
+    entries: [
+      { key: null, lines: ['!savesticker <tag> -- reply to a sticker (owner only)'] },
+      { key: 'notes', lines: ['!savenote <name> -- reply to any message (owner only)', '#name -- recall a saved note anywhere'] },
+      { key: 'broadcast', lines: ['!addbroadcast <name> -- tag a group for broadcasts (owner only)'] },
+      { key: 'tagall', lines: ['!tagall <message> -- mention everyone in a group'] },
+      { key: 'polls', lines: ['!poll question | option1 | option2'] },
+    ],
+  },
+];
+
+function buildHelpCaption(plugins) {
+  const enabledKeys = new Set(plugins.filter((p) => p.enabled).map((p) => p.key));
+  const lines = ['┏━━━━━━━━━━━━━━━━━━┓', '┃  WHATSAFORGE MENU  ┃', '┗━━━━━━━━━━━━━━━━━━┛', ''];
+  let anySection = false;
+  for (const section of HELP_SECTIONS) {
+    const sectionLines = section.entries
+      .filter((entry) => entry.key === null || enabledKeys.has(entry.key))
+      .flatMap((entry) => entry.lines);
+    if (sectionLines.length === 0) continue;
+    anySection = true;
+    lines.push(`★ ${section.title} ★`, ...sectionLines, '');
+  }
+  if (!anySection) {
+    lines.push("Nothing's turned on for this session yet -- enable plugins from the dashboard.");
+  }
+  return lines.join('\n').trim();
+}
+
+// "!help" -- deliberately not gated by any plugin toggle (unlike every
+// other command here): hiding the menu behind a toggle nobody knows
+// exists yet is exactly backwards for a discovery command. Sent as an
+// image with the command list as its caption rather than a plain-text
+// wall, matching the "here's what I can do" banner pattern most WhatsApp
+// bots use.
+async function handleHelpCommand(userId, sock, msg, plugins) {
+  try {
+    const banner = await generateHelpBanner();
+    const caption = buildHelpCaption(plugins);
+    await sock.sendMessage(msg.key.remoteJid, { image: banner, caption }, { quoted: msg });
+  } catch (err) {
+    console.error(`[${userId}] !help failed:`, err.message);
+    await sock.sendMessage(msg.key.remoteJid, { text: "Couldn't build the help menu right now -- try again?" }, { quoted: msg });
+  }
+}
 
 // "!timer 5m", "!timer 90s", "!timer 1h30m", or a bare number of minutes
 // ("!timer 5"). Multiple units combine (h/m/s in any order), matching how
@@ -130,7 +238,7 @@ const MAX_TIMER_DURATION_MS = 24 * 60 * 60 * 1000;
 const MAX_CONCURRENT_TIMERS = 3;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
-// Shared by anti-delete's eager media caching, "/savenote", and voice-note
+// Shared by anti-delete's eager media caching, "!savenote", and voice-note
 // transcription -- one place that knows how to detect and download
 // whatever media type a message contains, instead of each feature quietly
 // re-downloading the same file (a voice note, in particular, would
@@ -156,7 +264,7 @@ function detectMediaType(messageContent) {
 
 // The plain text of whatever message this one is quote-replying to, if
 // any -- '' when it isn't a reply, or the quoted message wasn't text.
-// Same extraction the gateway's own commands (/savenote, !ai) already do
+// Same extraction the gateway's own commands (!savenote, !ai) already do
 // for themselves; forwarded to the plugin engine too so Python plugins
 // can see it (e.g. !translate translating the quoted message rather than
 // needing the text typed inline every time).
@@ -255,7 +363,7 @@ function deriveStatusConfig(plugins) {
 }
 
 // The Fun pack's own plugin key -- games.py (8ball/rps/trivia) already
-// gates itself on this via the plugin engine, but /meme and the voice
+// gates itself on this via the plugin engine, but !meme and the voice
 // effects bypass the plugin engine entirely (they need real quoted media
 // bytes the Python side never receives), so the same enabled+
 // replyInGroups gating has to be replicated here.
@@ -277,9 +385,9 @@ function deriveTimerConfig(plugins) {
   return { enabled: true, replyInGroups: !!entry.settings?.replyInGroups };
 }
 
-// Trusted numbers who can use /tagall and /poll without being the account
+// Trusted numbers who can use !tagall and !poll without being the account
 // owner. Deliberately scoped to just these two utility commands rather
-// than every owner-only capability (savesticker/savenote/addbroadcast
+// than every owner-only capability (savesticker!savenote!addbroadcast
 // stay owner-only) to avoid widening what a designated number can do
 // beyond what's actually needed.
 function deriveSudoConfig(plugins) {
@@ -379,7 +487,7 @@ async function handleAntiLinkViolation(userId, sock, msg, groupJid, participantJ
 }
 
 // Lets the account owner teach the bot a sticker by quote-replying to an
-// existing sticker message with "/savesticker <tag>" -- see
+// existing sticker message with "!savesticker <tag>" -- see
 // gateway/README.md's "Sticker capture". Feedback is given by editing the
 // command message itself in place (same idiom AI Write already uses for
 // its own edits), not by sending a new visible message into whatever chat
@@ -390,11 +498,11 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
   const quotedSticker = contextInfo?.quotedMessage?.stickerMessage;
 
   if (!tag) {
-    await sendCommandFeedback(sock, userId, msg, 'Usage: /savesticker <tag> (reply to a sticker)', 'command');
+    await sendCommandFeedback(sock, userId, msg, 'Usage: !savesticker <tag> (reply to a sticker)', 'command');
     return;
   }
   if (!quotedSticker) {
-    await sendCommandFeedback(sock, userId, msg, `Reply directly to a sticker message with /savesticker ${tag}`, 'command');
+    await sendCommandFeedback(sock, userId, msg, `Reply directly to a sticker message with !savesticker ${tag}`, 'command');
     return;
   }
 
@@ -430,20 +538,20 @@ async function handleSaveStickerCommand(userId, sock, msg, rawTag) {
 
 // Lets the account owner save a quick-recall snippet by quote-replying to
 // *any* message -- text or media, whatever it was -- with
-// "/savenote <name>", then drop it into any conversation later with
+// "!savenote <name>", then drop it into any conversation later with
 // "#name" (see handleNoteRecall below). Same feedback idiom as
-// /savesticker: edits the command message itself in place.
+// !savesticker: edits the command message itself in place.
 async function handleSaveNoteCommand(userId, sock, msg, rawName) {
   const name = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
   const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
   const quoted = contextInfo?.quotedMessage;
 
   if (!name) {
-    await sendCommandFeedback(sock, userId, msg, 'Usage: /savenote <name> (reply to any message)', 'command');
+    await sendCommandFeedback(sock, userId, msg, 'Usage: !savenote <name> (reply to any message)', 'command');
     return;
   }
   if (!quoted) {
-    await sendCommandFeedback(sock, userId, msg, `Reply directly to a message with /savenote ${name}`, 'command');
+    await sendCommandFeedback(sock, userId, msg, `Reply directly to a message with !savenote ${name}`, 'command');
     return;
   }
 
@@ -452,7 +560,7 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
 
   try {
     if (mediaType) {
-      // Same synthetic-wrapper trick as /savesticker -- a quoted message
+      // Same synthetic-wrapper trick as !savesticker -- a quoted message
       // isn't a real top-level message in this payload, but
       // downloadMediaMessage only needs something shaped like one.
       const synthetic = {
@@ -499,18 +607,18 @@ async function handleSaveNoteCommand(userId, sock, msg, rawName) {
   }
 }
 
-// Lets the owner tag a group for broadcast use with "/addbroadcast <name>"
+// Lets the owner tag a group for broadcast use with "!addbroadcast <name>"
 // sent *inside* that group -- avoids ever needing to know/type the
 // group's opaque JID by hand. Only valid inside a group; using it in a DM
 // doesn't mean anything.
 async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
   const name = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
   if (!name) {
-    await sendCommandFeedback(sock, userId, msg, 'Usage: /addbroadcast <name> (send inside the group)', 'command');
+    await sendCommandFeedback(sock, userId, msg, 'Usage: !addbroadcast <name> (send inside the group)', 'command');
     return;
   }
   if (!msg.key.remoteJid.endsWith('@g.us')) {
-    await sendCommandFeedback(sock, userId, msg, '/addbroadcast only works inside a group.', 'command');
+    await sendCommandFeedback(sock, userId, msg, '!addbroadcast only works inside a group.', 'command');
     return;
   }
 
@@ -532,12 +640,12 @@ async function handleAddBroadcastCommand(userId, sock, msg, rawName) {
   }
 }
 
-// "/tagall <message>" -- mentions every group member at once. Only
+// "!tagall <message>" -- mentions every group member at once. Only
 // meaningful inside a group; the mention list is silent (no visible @tag
 // text per person) but still pings everyone, same as a real @all mention.
 async function handleTagAllCommand(userId, sock, msg, rawMessage) {
   if (!msg.key.remoteJid.endsWith('@g.us')) {
-    await sendCommandFeedback(sock, userId, msg, '/tagall only works inside a group.', 'command');
+    await sendCommandFeedback(sock, userId, msg, '!tagall only works inside a group.', 'command');
     return;
   }
   try {
@@ -546,18 +654,18 @@ async function handleTagAllCommand(userId, sock, msg, rawMessage) {
     const text = (rawMessage || 'Attention everyone!').trim();
     await sock.sendMessage(msg.key.remoteJid, { text, mentions: participantJids });
   } catch (err) {
-    console.error(`[${userId}] /tagall failed:`, err.message);
+    console.error(`[${userId}] !tagall failed:`, err.message);
     await sendCommandFeedback(sock, userId, msg, `Failed to tag everyone: ${err.message}`, 'command');
   }
 }
 
-// "/poll question | option1 | option2 | ..." -- sends a real native
+// "!poll question | option1 | option2 | ..." -- sends a real native
 // WhatsApp poll (not a text-based fake one).
 async function handlePollCommand(userId, sock, msg, rawPoll) {
   const parts = rawPoll.split('|').map((p) => p.trim()).filter(Boolean);
   const [question, ...options] = parts;
   if (!question || options.length < 2) {
-    await sendCommandFeedback(sock, userId, msg, 'Usage: /poll question | option1 | option2 | ...(up to 12 options)', 'command');
+    await sendCommandFeedback(sock, userId, msg, 'Usage: !poll question | option1 | option2 | ...(up to 12 options)', 'command');
     return;
   }
   try {
@@ -565,7 +673,7 @@ async function handlePollCommand(userId, sock, msg, rawPoll) {
       poll: { name: question, values: options.slice(0, 12), selectableCount: 1 },
     });
   } catch (err) {
-    console.error(`[${userId}] /poll failed:`, err.message);
+    console.error(`[${userId}] !poll failed:`, err.message);
     await sendCommandFeedback(sock, userId, msg, `Failed to create poll: ${err.message}`, 'command');
   }
 }
@@ -611,9 +719,9 @@ async function handleAskCommand(userId, sock, msg, rawQuestion, { editInPlace })
 }
 
 // Converts whatever media the owner quote-replies to: an image or
-// video/gif into a sticker ("/sticker"), a sticker back into a plain
-// image ("/img"), or an animated sticker into a normal video ("/gif").
-// Same synthetic-quoted-message-wrapper trick as /savesticker/savenote --
+// video/gif into a sticker ("!sticker"), a sticker back into a plain
+// image ("!img"), or an animated sticker into a normal video ("!gif").
+// Same synthetic-quoted-message-wrapper trick as !savesticker!savenote --
 // downloadMediaMessage only needs something shaped like a real message.
 async function handleMediaConvertCommand(userId, sock, msg, mode) {
   const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
@@ -622,9 +730,9 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
 
   if (!quoted || !mediaType) {
     const usage = {
-      sticker: 'Reply to an image or video/gif with /sticker to make a sticker.',
-      img: 'Reply to a sticker with /img to convert it to an image.',
-      gif: 'Reply to a sticker with /gif to convert it to a video.',
+      sticker: 'Reply to an image or video/gif with !sticker to make a sticker.',
+      img: 'Reply to a sticker with !img to convert it to an image.',
+      gif: 'Reply to a sticker with !gif to convert it to a video.',
     }[mode];
     await sendCommandFeedback(sock, userId, msg, usage, 'command');
     return;
@@ -644,7 +752,7 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
 
     if (mode === 'sticker') {
       if (mediaType !== 'imageMessage' && mediaType !== 'videoMessage') {
-        await sendCommandFeedback(sock, userId, msg, 'Reply to an image or video/gif with /sticker to make a sticker.', 'command');
+        await sendCommandFeedback(sock, userId, msg, 'Reply to an image or video/gif with !sticker to make a sticker.', 'command');
         return;
       }
       const webp =
@@ -654,14 +762,14 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
       await sock.sendMessage(msg.key.remoteJid, { sticker: webp });
     } else if (mode === 'img') {
       if (mediaType !== 'stickerMessage') {
-        await sendCommandFeedback(sock, userId, msg, 'Reply to a sticker with /img.', 'command');
+        await sendCommandFeedback(sock, userId, msg, 'Reply to a sticker with !img.', 'command');
         return;
       }
       const png = await stickerToImage(media.buffer);
       await sock.sendMessage(msg.key.remoteJid, { image: png });
     } else if (mode === 'gif') {
       if (mediaType !== 'stickerMessage') {
-        await sendCommandFeedback(sock, userId, msg, 'Reply to a sticker with /gif.', 'command');
+        await sendCommandFeedback(sock, userId, msg, 'Reply to a sticker with !gif.', 'command');
         return;
       }
       const mp4 = await stickerToVideo(media.buffer);
@@ -678,8 +786,8 @@ async function handleMediaConvertCommand(userId, sock, msg, mode) {
   }
 }
 
-// "/robot", "/deep", "/chipmunk", "/echo" -- quote-reply to a voice note
-// to get it back transformed. Same Fun-pack gating as /meme above.
+// "!robot", "!deep", "!chipmunk", "!echo" -- quote-reply to a voice note
+// to get it back transformed. Same Fun-pack gating as !meme above.
 async function handleVoiceEffectCommand(userId, sock, msg, effectName) {
   const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
   const quoted = contextInfo?.quotedMessage;
@@ -1678,12 +1786,12 @@ export async function startSession(userId, phoneNumber) {
       // A sticker someone else sent has no text either, but AI Reply can
       // react to it directly (see ai_reply.py's incoming_sticker_bytes) --
       // only ever for stickers from someone else, not the owner's own
-      // sticker sends, which are handled separately by /savesticker.
+      // sticker sends, which are handled separately by !savesticker.
       const isIncomingSticker = !!msg.message.stickerMessage && !msg.key.fromMe;
       if (!text && !(isVoiceNote && !msg.key.fromMe) && !isIncomingSticker) continue;
 
       // Sudo: a trusted number who isn't the account owner can still use
-      // /tagall and /poll (only those two -- not savesticker/savenote/
+      // !tagall and !poll (only those two -- not savesticker!savenote/
       // addbroadcast, which stay owner-only). Checked here, before the
       // normal fromMe/non-fromMe branches below, so it doesn't disturb
       // either of them; anything that isn't one of these two commands
@@ -1707,7 +1815,7 @@ export async function startSession(userId, phoneNumber) {
       }
 
       // Voice changer -- gated by the "games" plugin toggle and its
-      // replyInGroups setting, same as the Python-side Fun pack (/meme now
+      // replyInGroups setting, same as the Python-side Fun pack (!meme now
       // lives there too, see games.py -- this one stays gateway-side since
       // it needs the actual quoted voice-note bytes, which the Python side
       // never receives), so the group-gating games.py would normally do
@@ -1756,6 +1864,15 @@ export async function startSession(userId, phoneNumber) {
             await handleTimerCommand(userId, sock, msg, timerMatch[1]);
             continue;
           }
+        }
+      }
+
+      // "!help" -- no toggle, no group-gating check, works for anyone
+      // anywhere. See handleHelpCommand for why.
+      if (!aiSentMessageIds.has(msg.key.id)) {
+        if (HELP_COMMAND.test(text)) {
+          await handleHelpCommand(userId, sock, msg, await refreshPluginConfigs());
+          continue;
         }
       }
 
@@ -1887,7 +2004,7 @@ export async function startSession(userId, phoneNumber) {
         // PLUGIN_COMMAND_RE). Everything above is handled gateway-side, but
         // these need forwarding -- and this branch otherwise never talks to
         // the plugin engine at all, so the account owner could never run
-        // their own /imagine, /pinterest, /song or Fun commands. Deliberately
+        // their own !imagine, !pinterest, !song or Fun commands. Deliberately
         // placed after the note recall so "#name" still wins, and before
         // ai_write so a command is never treated as prose to rewrite.
         if (PLUGIN_COMMAND_RE.test(text)) {

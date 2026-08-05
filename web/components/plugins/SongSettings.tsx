@@ -30,8 +30,8 @@ export default function SongSettings({
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
         Anyone chatting with the bot can message{' '}
-        <code className="rounded bg-surface-raised px-1">/song &lt;genre or mood&gt;</code> (e.g.{' '}
-        <code className="rounded bg-surface-raised px-1">/song lofi chill</code>) to get back a
+        <code className="rounded bg-surface-raised px-1">!song &lt;genre or mood&gt;</code> (e.g.{' '}
+        <code className="rounded bg-surface-raised px-1">!song lofi chill</code>) to get back a
         royalty-free track. This only searches Jamendo&apos;s catalog of independent,
         Creative-Commons-licensed music -- not mainstream commercial songs -- and always replies
         with the artist name and license so it can be credited properly.

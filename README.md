@@ -157,14 +157,14 @@ sections:
 - **AI Write** -- instantly edits the *owner's own* outgoing messages
   (typo/grammar fixes by default, or a chosen tone/translation/custom
   style) via WhatsApp's native message-edit feature.
-- **Song Fetcher** -- `/song <genre, mood, or artist>` sends back a
+- **Song Fetcher** -- `!song <genre, mood, or artist>` sends back a
   Creative-Commons-licensed track from Jamendo's catalog (independent
   music, not mainstream releases) with artist/license attribution.
   Requires a free `JAMENDO_CLIENT_ID`.
 - **Anti-Delete** -- privately tells the owner what a deleted message said
   (any media type), in their own "Message Yourself" chat, never
   re-posted back into the original chat/group.
-- **Notes** -- reply-quote any message with `/savenote <name>` to save it
+- **Notes** -- reply-quote any message with `!savenote <name>` to save it
   (text or media), recall it into any chat later with `#name`.
 
 ## Writing a new reply plugin
@@ -223,6 +223,6 @@ Current live URLs and full deployment notes are in `STATUS.md`.
   catalog) -- a request for a mainstream commercial song will come up
   empty by design, not by bug.
 - Anti-Delete and Notes only capture media up to 8MB; a larger file (e.g.
-  a long video) that gets deleted or reply-quoted for `/savenote` won't be
+  a long video) that gets deleted or reply-quoted for `!savenote` won't be
   recoverable/saveable.
 - See `STATUS.md` for current deployment details and anything in progress.

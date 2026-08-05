@@ -54,7 +54,7 @@ class ReplyResponse(BaseModel):
     # voice-note case above) since the wire format is identical either way.
     audio: Optional[AudioPayload] = None
     # Real image file(s) to send alongside `reply` -- see pinterest.py and
-    # imagine.py. A list (not a single image) since /pinterest sends a
+    # imagine.py. A list (not a single image) since !pinterest sends a
     # small handful of results at once.
     images: Optional[List[ImagePayload]] = None
 

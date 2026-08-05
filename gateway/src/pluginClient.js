@@ -28,7 +28,7 @@ export async function forwardMessage({ userId, from, text, audio, sticker, fromM
       from_me: !!fromMe,
       quoted_text: quotedText || '',
     }),
-    // A voice note means real transcription work, and a "/song" request
+    // A voice note means real transcription work, and a "!song" request
     // (see song.py) means fetching and downloading a multi-MB file from
     // Jamendo, both on top of the usual plugin dispatch -- either can
     // legitimately take longer than a plain text message. Bound it anyway

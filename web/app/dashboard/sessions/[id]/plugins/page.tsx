@@ -89,7 +89,9 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
       <h1 className="mt-4 text-xl font-semibold">Plugins</h1>
       <p className="mt-1 text-sm text-slate-400">
         Configure how this WhatsApp session responds to messages. Tap a tile to open its
-        settings.
+        settings. Every command starts with <code className="rounded bg-surface-raised px-1">!</code> --
+        send <code className="rounded bg-surface-raised px-1">!help</code> in any chat for the
+        full list of what&apos;s currently turned on.
       </p>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">

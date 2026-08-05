@@ -71,7 +71,7 @@ export async function completeScheduledTask(taskId) {
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
 }
 
-// Teaches the bot a sticker via "/savesticker <tag>" (see whatsappManager.js's
+// Teaches the bot a sticker via "!savesticker <tag>" (see whatsappManager.js's
 // handleSaveStickerCommand) -- upserts by (sessionId, tag), so re-saving a
 // tag overwrites it.
 export async function saveSticker({ sessionId, tag, data, mimetype }) {
@@ -156,7 +156,7 @@ export async function fetchShardsSummary() {
   return data.shards || [];
 }
 
-// Teaches the bot a note via "/savenote <name>" (see whatsappManager.js) --
+// Teaches the bot a note via "!savenote <name>" (see whatsappManager.js) --
 // upserts by (sessionId, name), so re-saving a name overwrites it (unlike
 // stickers, a note is meant to be one canonical named snippet, not a pool
 // of random variants).
@@ -186,7 +186,7 @@ export async function fetchNote(sessionId, name) {
   return res.json();
 }
 
-// Tags a group for broadcast use via "/addbroadcast <name>" sent inside
+// Tags a group for broadcast use via "!addbroadcast <name>" sent inside
 // it (see whatsappManager.js) -- upserts by (sessionId, name), so re-using
 // a name re-tags whichever group it was sent in most recently.
 export async function saveBroadcastGroup({ sessionId, name, jid, groupName }) {

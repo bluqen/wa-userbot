@@ -12,7 +12,7 @@ export default function NotesSettings({ sessionId }: { sessionId: string }) {
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
         Reply directly to any message -- text, image, video, voice note, sticker, or document --
-        with <code className="rounded bg-surface-raised px-1">/savenote &lt;name&gt;</code> to save
+        with <code className="rounded bg-surface-raised px-1">!savenote &lt;name&gt;</code> to save
         it. Later, typing <code className="rounded bg-surface-raised px-1">#name</code> anywhere
         in a message drops that saved content into whichever conversation you&apos;re in.
       </div>

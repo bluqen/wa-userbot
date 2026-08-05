@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// Called by the gateway when the owner sends "/addbroadcast <name>" inside
+// Called by the gateway when the owner sends "!addbroadcast <name>" inside
 // a group -- upserts by (sessionId, name) so re-using a name re-tags
 // whichever group it was sent in most recently.
 export async function POST(req: Request) {

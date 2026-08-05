@@ -43,7 +43,7 @@ export default function StickerManager({ sessionId }: { sessionId: string }) {
       <label className="mb-1.5 block text-sm font-medium text-slate-300">Saved stickers</label>
       <p className="mb-2 text-xs text-slate-500">
         Taught via WhatsApp itself -- reply to a sticker message with{' '}
-        <code className="rounded bg-surface px-1">/savesticker &lt;tag&gt;</code>.
+        <code className="rounded bg-surface px-1">!savesticker &lt;tag&gt;</code>.
       </p>
 
       {loading ? (

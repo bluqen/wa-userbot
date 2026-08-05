@@ -29,19 +29,19 @@ export default function GamesSettings({
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
-        Commands: <code className="rounded bg-surface-raised px-1">/8ball &lt;question&gt;</code>,{' '}
-        <code className="rounded bg-surface-raised px-1">/rps rock|paper|scissors</code>, and{' '}
-        <code className="rounded bg-surface-raised px-1">/trivia</code> (answer with{' '}
-        <code className="rounded bg-surface-raised px-1">/trivia answer &lt;letter&gt;</code>).
+        Commands: <code className="rounded bg-surface-raised px-1">!8ball &lt;question&gt;</code>,{' '}
+        <code className="rounded bg-surface-raised px-1">!rps rock|paper|scissors</code>, and{' '}
+        <code className="rounded bg-surface-raised px-1">!trivia</code> (answer with{' '}
+        <code className="rounded bg-surface-raised px-1">!trivia answer &lt;letter&gt;</code>).
         <br />
         <br />
-        Send <code className="rounded bg-surface-raised px-1">/meme</code> for a random meme, or{' '}
-        <code className="rounded bg-surface-raised px-1">/meme wholesomememes</code> to pull from a
+        Send <code className="rounded bg-surface-raised px-1">!meme</code> for a random meme, or{' '}
+        <code className="rounded bg-surface-raised px-1">!meme wholesomememes</code> to pull from a
         specific subreddit. Reply to a voice note with{' '}
-        <code className="rounded bg-surface-raised px-1">/robot</code>,{' '}
-        <code className="rounded bg-surface-raised px-1">/deep</code>,{' '}
-        <code className="rounded bg-surface-raised px-1">/chipmunk</code>, or{' '}
-        <code className="rounded bg-surface-raised px-1">/echo</code> to send it back transformed.
+        <code className="rounded bg-surface-raised px-1">!robot</code>,{' '}
+        <code className="rounded bg-surface-raised px-1">!deep</code>,{' '}
+        <code className="rounded bg-surface-raised px-1">!chipmunk</code>, or{' '}
+        <code className="rounded bg-surface-raised px-1">!echo</code> to send it back transformed.
       </div>
 
       <label className="flex items-center justify-between gap-4 text-sm">

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Called by the gateway when the account owner teaches the bot a sticker
-// via "/savesticker <tag>" (see gateway/README.md). Always inserts a new
+// via "!savesticker <tag>" (see gateway/README.md). Always inserts a new
 // row -- multiple stickers can share the same tag on purpose (several
 // different "happy" stickers, say), and a random one among them gets
 // picked at send time, so re-using a tag adds variety instead of

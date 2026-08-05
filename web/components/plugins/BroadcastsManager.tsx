@@ -131,7 +131,7 @@ export default function BroadcastsManager({ sessionId }: { sessionId: string }) 
           Groups {groups.length === 0 && <span className="font-normal text-slate-500">(none tagged yet)</span>}
         </label>
         <p className="mb-2 text-xs text-slate-500">
-          Send <code className="rounded bg-surface px-1">/addbroadcast &lt;name&gt;</code> inside a
+          Send <code className="rounded bg-surface px-1">!addbroadcast &lt;name&gt;</code> inside a
           group to tag it for broadcasts -- no need to know its number.
         </p>
         {groups.length > 0 && (

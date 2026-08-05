@@ -53,7 +53,7 @@ export default function NotesManager({ sessionId }: { sessionId: string }) {
       <label className="mb-1.5 block text-sm font-medium text-slate-300">Saved notes</label>
       <p className="mb-2 text-xs text-slate-500">
         Saved via WhatsApp itself -- reply to any message with{' '}
-        <code className="rounded bg-surface px-1">/savenote &lt;name&gt;</code>, then recall it
+        <code className="rounded bg-surface px-1">!savenote &lt;name&gt;</code>, then recall it
         anywhere with <code className="rounded bg-surface px-1">#name</code>.
       </p>
 

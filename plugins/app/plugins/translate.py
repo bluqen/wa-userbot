@@ -18,7 +18,7 @@ MAX_CONTENT_LENGTH = 2000
 class TranslatePlugin(Plugin):
     """Translates text on demand -- either typed inline or, replying to a
     message, the quoted message's own text. Usable by anyone chatting with
-    the bot, not owner-only, same as /song, /imagine etc.
+    the bot, not owner-only, same as !song, !imagine etc.
     """
 
     name = "translate"

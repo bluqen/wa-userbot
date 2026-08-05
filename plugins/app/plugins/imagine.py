@@ -14,7 +14,7 @@ from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolv
 # into the path.
 POLLINATIONS_URL = "https://image.pollinations.ai/prompt/{prompt}"
 
-IMAGINE_COMMAND = re.compile(r"^/imagine(?:\s+(.+))?$", re.IGNORECASE | re.DOTALL)
+IMAGINE_COMMAND = re.compile(r"^!imagine(?:\s+(.+))?$", re.IGNORECASE | re.DOTALL)
 
 MAX_PROMPT_LENGTH = 300
 # Same reasoning as song.py/anti-delete's byte caps -- an uncapped image
@@ -24,7 +24,7 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 
 class ImaginePlugin(Plugin):
-    """Generates an AI image from a text prompt via "/imagine <prompt>",
+    """Generates an AI image from a text prompt via "!imagine <prompt>",
     using Pollinations.ai's free, keyless image generation endpoint.
     """
 
@@ -37,10 +37,10 @@ class ImaginePlugin(Plugin):
             return False
 
         # Group-gating is deliberately *not* checked here -- see handle()
-        # below. If it were, a blocked "/imagine" in a group would return
+        # below. If it were, a blocked "!imagine" in a group would return
         # False from match() and silently fall through to whatever plugin
         # runs next (typically AI Reply), which would then hallucinate an
-        # unrelated chatty response to the literal text "/imagine ...".
+        # unrelated chatty response to the literal text "!imagine ...".
         # That looked exactly like the command being broken, when it was
         # actually just off for groups. Claiming the command syntax here
         # and explaining why in handle() instead avoids that.
@@ -54,11 +54,11 @@ class ImaginePlugin(Plugin):
         config = resolve_settings(self.config, ctx.from_jid)
         is_group = ctx.from_jid.endswith("@g.us")
         if is_group and not config.get("replyInGroups", False):
-            return Reply(text="/imagine isn't turned on for group chats -- ask the bot owner to enable it.")
+            return Reply(text="!imagine isn't turned on for group chats -- ask the bot owner to enable it.")
 
         prompt = (match.group(1) or "").strip()
         if not prompt:
-            return Reply(text='Usage: /imagine <description>, e.g. "/imagine a cat astronaut riding a horse"')
+            return Reply(text='Usage: !imagine <description>, e.g. "!imagine a cat astronaut riding a horse"')
 
         prompt = prompt[:MAX_PROMPT_LENGTH]
 

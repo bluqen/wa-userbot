@@ -9,12 +9,12 @@ import httpx
 from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolve_settings
 from ..stale_cache import maybe_sweep
 
-EIGHT_BALL_COMMAND = re.compile(r"^/8ball(?:\s+.+)?$", re.IGNORECASE)
-RPS_COMMAND = re.compile(r"^/rps\s+(rock|paper|scissors)$", re.IGNORECASE)
-TRIVIA_COMMAND = re.compile(r"^/trivia$", re.IGNORECASE)
-TRIVIA_ANSWER_COMMAND = re.compile(r"^/trivia\s+answer\s+([a-dA-D])$", re.IGNORECASE)
-# Optional subreddit name, e.g. "/meme" (random) or "/meme wholesomememes".
-MEME_COMMAND = re.compile(r"^/meme(?:\s+(\S+))?$", re.IGNORECASE)
+EIGHT_BALL_COMMAND = re.compile(r"^!8ball(?:\s+.+)?$", re.IGNORECASE)
+RPS_COMMAND = re.compile(r"^!rps\s+(rock|paper|scissors)$", re.IGNORECASE)
+TRIVIA_COMMAND = re.compile(r"^!trivia$", re.IGNORECASE)
+TRIVIA_ANSWER_COMMAND = re.compile(r"^!trivia\s+answer\s+([a-dA-D])$", re.IGNORECASE)
+# Optional subreddit name, e.g. "!meme" (random) or "!meme wholesomememes".
+MEME_COMMAND = re.compile(r"^!meme(?:\s+(\S+))?$", re.IGNORECASE)
 
 # Free, keyless meme API -- pulls a random post (image + title) from a
 # curated set of meme subreddits, or a named one if given. No signup, no
@@ -76,7 +76,7 @@ TRIVIA_QUESTIONS = [
 
 # (session_id, chat_jid) -> pending trivia question. Periodically swept
 # (see stale_cache.py) so an abandoned question -- nobody ever answers --
-# doesn't sit here forever; a real answer or a fresh /trivia both replace
+# doesn't sit here forever; a real answer or a fresh !trivia both replace
 # it anyway.
 _pending_trivia: dict = {}
 _PENDING_TRIVIA_STALE_AFTER_SECONDS = 30 * 60
@@ -101,7 +101,7 @@ class GamesPlugin(Plugin):
         # below. Returning False from match() when blocked-for-groups
         # makes the message silently fall through to whatever plugin runs
         # next (typically AI Reply), which then hallucinates an unrelated
-        # chatty response to the literal text "/8ball ...". That looks
+        # chatty response to the literal text "!8ball ...". That looks
         # exactly like the command being broken, when it's actually just
         # off for groups. Claiming the command syntax here and explaining
         # why in handle() instead avoids that.
@@ -154,7 +154,7 @@ class GamesPlugin(Plugin):
             return Reply(
                 text=(
                     f"\U0001F3AE Trivia!\n{question['question']}\n\n{options_text}\n\n"
-                    'Reply with "/trivia answer <letter>"'
+                    'Reply with "!trivia answer <letter>"'
                 )
             )
 
@@ -162,7 +162,7 @@ class GamesPlugin(Plugin):
         if answer_match:
             pending = _pending_trivia.get(key)
             if not pending:
-                return Reply(text='No trivia question is pending -- start one with "/trivia"')
+                return Reply(text='No trivia question is pending -- start one with "!trivia"')
             del _pending_trivia[key]
             guess = answer_match.group(1).upper()
             if guess == pending["correct"]:
@@ -183,7 +183,7 @@ def _fetch_meme(subreddit: str) -> Reply:
             with httpx.Client(timeout=10.0) as client:
                 res = client.get(url)
                 if res.status_code == 404:
-                    return Reply(text=f'No meme subreddit called "{subreddit}" -- try "/meme" for a random one.')
+                    return Reply(text=f'No meme subreddit called "{subreddit}" -- try "!meme" for a random one.')
                 res.raise_for_status()
                 data = res.json()
         except Exception as exc:

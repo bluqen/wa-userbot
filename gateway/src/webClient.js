@@ -133,7 +133,27 @@ export async function fetchSessionPluginConfigs(sessionId) {
   }
   if (!res.ok) throw new Error(`web app responded ${res.status}`);
   const data = await res.json();
-  return data.plugins || [];
+  // isAdmin rides along on this same response (this session's owning web
+  // account's email is in ADMIN_EMAILS) rather than needing its own fetch --
+  // gates admin-only commands like "!status all" without a second round
+  // trip. See whatsappManager.js's refreshPluginConfigs, which caches both.
+  return { plugins: data.plugins || [], isAdmin: !!data.isAdmin };
+}
+
+// Cross-shard summary for "!status all" (admin-only, see whatsappManager.js
+// and deriveStatusConfig) -- each registered GatewayShard row plus its
+// current session count and how many of those are actually connected right
+// now. Server-to-server equivalent of /dashboard/admin/shards; there's no
+// browser session to check in this context, so it's gated by the shared
+// internal secret like every other route in this file, not requireAdmin().
+export async function fetchShardsSummary() {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/shards-summary`, {
+    headers: { 'x-internal-secret': INTERNAL_API_SECRET },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  return data.shards || [];
 }
 
 // Teaches the bot a note via "/savenote <name>" (see whatsappManager.js) --

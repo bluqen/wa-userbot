@@ -21,6 +21,7 @@ import {
   saveSticker,
   fetchSticker,
   fetchSessionPluginConfigs,
+  fetchShardsSummary,
   saveNote,
   fetchNote,
   saveBroadcastGroup,
@@ -61,7 +62,7 @@ const MEME_COMMAND = /^\/meme(?:\s+([\s\S]+))?$/i;
 const VOICE_EFFECT_COMMAND = /^\/(robot|deep|chipmunk|echo)\b/i;
 const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
-const STATUS_COMMAND = /^!status$/i;
+const STATUS_COMMAND = /^!status(?:\s+(all))?$/i;
 
 // "!timer 5m", "!timer 90s", "!timer 1h30m", or a bare number of minutes
 // ("!timer 5"). Multiple units combine (h/m/s in any order), matching how
@@ -1206,12 +1207,44 @@ export async function startSession(userId, phoneNumber) {
 
   // "!status" -- owner-only readout of this session's own state: which
   // gateway/plugin-engine pair it's running against, how long the socket
-  // has been up, and how many plugins are currently enabled. Deliberately
-  // scoped to this session only, not other shards or accounts -- there's
-  // no WhatsApp-side concept of "admin" anywhere in this codebase, so a
-  // real cross-shard status command needs its own access-control decision
-  // before it's worth building.
-  async function handleStatusCommand(userId, sock, msg) {
+  // has been up, and how many plugins are currently enabled.
+  //
+  // "!status all" is the cross-shard variant -- every registered shard's
+  // session count and plugin-engine pairing, for admins only. "Admin" here
+  // means the web account this session belongs to has an email in
+  // ADMIN_EMAILS (see web/lib/admin.ts's isAdminEmail, piggybacked onto
+  // refreshPluginConfigs' response -- see isSessionAdmin above), same
+  // definition the website's own /dashboard/admin already uses. A
+  // non-admin typing "!status all" gets told it's admin-only rather than
+  // silently falling back to their own status, so it's obvious the extra
+  // word did nothing rather than looking like a typo that got ignored.
+  async function handleStatusCommand(userId, sock, msg, scope) {
+    if (scope === 'all') {
+      if (!(await isSessionAdmin())) {
+        await sendCommandFeedback(sock, userId, msg, '!status all is admin-only.', 'status');
+        return;
+      }
+      let shards;
+      try {
+        shards = await fetchShardsSummary();
+      } catch (err) {
+        console.error(`[${userId}] !status all failed:`, describeFetchError(err));
+        await sendCommandFeedback(sock, userId, msg, `Couldn't reach the web app for shard status.`, 'status');
+        return;
+      }
+      const lines =
+        shards.length === 0
+          ? ['No shards registered -- every session runs on the single GATEWAY_URL fallback.']
+          : shards.map((s) => {
+              const label = s.label || s.url;
+              const paired = s.pluginEngineUrl ? 'paired' : 'sharing the default plugin engine';
+              const active = s.active ? '' : ' (inactive)';
+              return `${label}${active}: ${s.connectedCount}/${s.sessionCount} sessions connected -- ${paired}`;
+            });
+      await sendCommandFeedback(sock, userId, msg, `🛡️ Shards\n${lines.join('\n')}`, 'status-all');
+      return;
+    }
+
     const plugins = await refreshPluginConfigs();
     const enabledCount = plugins.filter((p) => p.enabled).length;
     const uptime = formatTimerRemaining(Date.now() - entry.createdAt);
@@ -1238,6 +1271,7 @@ export async function startSession(userId, phoneNumber) {
   // TTL-cached instead: at most one fetch per session per minute, covering
   // both features' settings from the one shared plugins-list route.
   let cachedPluginConfigs = [];
+  let cachedIsAdmin = false;
   let cachedPluginConfigsFetchedAt = 0;
   const PLUGIN_CONFIG_TTL_MS = 60 * 1000;
 
@@ -1246,7 +1280,9 @@ export async function startSession(userId, phoneNumber) {
       return cachedPluginConfigs;
     }
     try {
-      cachedPluginConfigs = await fetchSessionPluginConfigs(userId);
+      const data = await fetchSessionPluginConfigs(userId);
+      cachedPluginConfigs = data.plugins;
+      cachedIsAdmin = data.isAdmin;
       cachedPluginConfigsFetchedAt = Date.now();
     } catch (err) {
       if (err.code === 'SESSION_UNKNOWN') {
@@ -1268,6 +1304,15 @@ export async function startSession(userId, phoneNumber) {
       // treating a transient network blip as "everything just turned off".
     }
     return cachedPluginConfigs;
+  }
+
+  // Whether this session's owning web account's email is in ADMIN_EMAILS
+  // (see web/lib/admin.ts) -- rides along on the same cached fetch as
+  // refreshPluginConfigs rather than its own round trip. Gates "!status
+  // all" (see handleStatusCommand).
+  async function isSessionAdmin() {
+    await refreshPluginConfigs();
+    return cachedIsAdmin;
   }
 
   // Anti-delete: WhatsApp's "delete for everyone" doesn't actually
@@ -1756,10 +1801,11 @@ export async function startSession(userId, phoneNumber) {
           continue;
         }
 
-        if (STATUS_COMMAND.test(text)) {
+        const statusMatch = text.match(STATUS_COMMAND);
+        if (statusMatch) {
           const status = deriveStatusConfig(await refreshPluginConfigs());
           if (status.enabled) {
-            await handleStatusCommand(userId, sock, msg);
+            await handleStatusCommand(userId, sock, msg, (statusMatch[1] || '').toLowerCase());
             continue;
           }
         }

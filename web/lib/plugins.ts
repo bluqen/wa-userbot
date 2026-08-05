@@ -162,7 +162,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   session_status: {
     name: 'Session Info',
-    description: 'Check this session\'s connection and plugin count with "!status".',
+    description: 'Check this session\'s connection and plugin count with "!status" -- admins can also run "!status all" for every shard.',
     icon: '📶',
   },
 };

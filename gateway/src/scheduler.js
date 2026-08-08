@@ -1,5 +1,5 @@
 import { fetchDueTasks, completeScheduledTask, describeFetchError } from './webClient.js';
-import { getSession } from './whatsappManager.js';
+import { getSession, buildOutgoingMediaContent } from './whatsappManager.js';
 
 // One minute is plenty -- every task type so far (block durations) operates
 // on hour-granularity, so up to ~60s of lateness is a non-issue. Keep this
@@ -25,6 +25,35 @@ const handlers = {
   // "ping this chat at runAt" instead. Persisted rather than an in-memory
   // setTimeout so it survives the routine socket reconnects that would
   // otherwise wipe it.
+  // "!sm" -- replays whatever the owner replied to (text, photo with its
+  // caption, document, voice note) to the chosen chat at the chosen time.
+  // The bytes were captured when the command ran, so this doesn't depend
+  // on the original message still existing.
+  scheduled_send: async ({ payload }, entry) => {
+    if (payload.kind === 'media' && payload.data) {
+      const content = buildOutgoingMediaContent({
+        mediaType: payload.mediaType,
+        buffer: Buffer.from(payload.data, 'base64'),
+        mimetype: payload.mimetype,
+        caption: payload.caption,
+        fileName: payload.fileName,
+        ptt: payload.ptt,
+      });
+      if (content) {
+        await entry.sock.sendMessage(payload.jid, content);
+        return true;
+      }
+    }
+    if (payload.text) {
+      await entry.sock.sendMessage(payload.jid, { text: payload.text });
+      return true;
+    }
+    // Nothing usable stored -- returning true rather than throwing so a
+    // malformed task can't be retried forever on every poll.
+    console.error(`Scheduler: scheduled_send task had nothing to send (jid ${payload.jid})`);
+    return true;
+  },
+
   timer_done: async ({ payload }, entry) => {
     // A custom message ("!timer 2h take the bread out") wins outright --
     // it's what the user actually wanted said. Otherwise fall back to the

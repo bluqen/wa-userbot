@@ -23,6 +23,7 @@ import {
   planAgentActions,
 } from './pluginClient.js';
 import { AGENT_ACTIONS, buildAgentCatalog, parseAgentDelay } from './agentActions.js';
+import { splitTargetAndTime, describeRunAt, isValidTimeZone } from './scheduleTime.js';
 import {
   createScheduledTask,
   cancelTimerTask,
@@ -84,6 +85,12 @@ const STOP_COMMAND = /^!stop$/i;
 // "I couldn't find a contact called dad" is otherwise indistinguishable
 // from "the contact sync never happened" -- which was a real bug.
 const CONTACTS_COMMAND = /^!contacts(?:\s+([\s\S]+))?$/i;
+
+// "!sm <target> <when>" / "!schedule ..." -- sent as a reply to whatever
+// should be delivered later. Target can be a phone number, a saved
+// contact, or a group name; the content is whatever was replied to, in
+// whatever form it was (text, photo with caption, document, voice note).
+const SM_COMMAND = /^!(?:sm|schedule)(?:\s+([\s\S]+))?$/i;
 
 // "!ag <instruction>" / "!agent <instruction>", plus the confirmation
 // replies "!ag yes" / "!ag no" that gate anything reaching another person.
@@ -284,6 +291,15 @@ const HELP_SECTIONS = [
         key: 'session_status',
         name: 'Session Info',
         lines: ["!status -- this session's own connection info", '!status all -- every shard (admins only)'],
+      },
+      {
+        key: 'scheduled_send',
+        name: 'Scheduled Messages',
+        lines: [
+          'reply to anything with !sm <who> <when> to send it later',
+          'e.g. !sm mum 5pm / !sm +234... 4h / !sm Study Group 2026 6:30pm',
+          'works for photos, documents, voice notes -- not just text',
+        ],
       },
       {
         key: null,
@@ -523,7 +539,19 @@ async function downloadAnyMedia(msg, mediaType, mediaObj) {
 
 // Maps a cached/saved media entry back into the Baileys sendMessage content
 // shape needed to actually resend it (anti-delete recovery, note recall).
-function buildOutgoingMediaContent({ mediaType, buffer, mimetype, caption, fileName, ptt }) {
+// Plain-English name for a media type, for confirmations.
+function describeMediaKind(mediaType) {
+  switch (mediaType) {
+    case 'imageMessage': return 'photo';
+    case 'videoMessage': return 'video';
+    case 'audioMessage': return 'audio';
+    case 'stickerMessage': return 'sticker';
+    case 'documentMessage': return 'document';
+    default: return 'message';
+  }
+}
+
+export function buildOutgoingMediaContent({ mediaType, buffer, mimetype, caption, fileName, ptt }) {
   switch (mediaType) {
     case 'imageMessage':
       return { image: buffer, mimetype, caption: caption || undefined };
@@ -599,6 +627,13 @@ function deriveAnimateConfig(plugins) {
 function deriveAgentConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'agent');
   return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveScheduledSendConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'scheduled_send');
+  if (!entry || !entry.enabled) return { enabled: false, timezone: 'UTC' };
+  const timezone = entry.settings?.timezone;
+  return { enabled: true, timezone: isValidTimeZone(timezone) ? timezone : 'UTC' };
 }
 
 // Folds the ways the same person's name gets written down to one
@@ -1881,6 +1916,122 @@ export async function startSession(userId, phoneNumber) {
     );
   }
 
+  // "!sm <target> <when>" -- owner-only, sent as a reply to whatever
+  // should be delivered later.
+  //
+  // The content is captured *now*, not at send time: media URLs expire,
+  // and the original could be deleted before the send lands. So the bytes
+  // are stored on the task itself and replayed later, which also means a
+  // scheduled photo still arrives if the original chat is gone.
+  async function handleScheduleMessageCommand(userId, sock, msg, rawArgs, timezone) {
+    const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+    const quoted = contextInfo?.quotedMessage;
+    const args = (rawArgs || '').trim();
+
+    if (!args || !quoted) {
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        'Reply to the message you want sent later with:\n' +
+          '!sm <who> <when>\n\n' +
+          'e.g. !sm +2349393048203 5pm\n' +
+          '     !sm mum 4h\n' +
+          '     !sm Study Group 2026 6:30pm\n' +
+          '     !sm dad tomorrow 9am',
+        'sm',
+      );
+      return;
+    }
+
+    const split = splitTargetAndTime(args, { now: new Date(), timeZone: timezone });
+    if (!split) {
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        `I couldn't find a time in "${args}". Try something like "5pm", "6:30pm", "4h", or "tomorrow 9am".`,
+        'sm',
+      );
+      return;
+    }
+
+    const found = resolveTarget(split.target, { includeGroups: true });
+    if (found.status === 'none') {
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        `I couldn't find "${split.target}". Check with !contacts ${split.target}`,
+        'sm',
+      );
+      return;
+    }
+    if (found.status === 'ambiguous') {
+      const names = found.candidates.map((c) => `• ${c.label}`).join('\n');
+      await sendCommandFeedback(sock, userId, msg, `"${split.target}" could be:\n${names}\n\nBe more specific.`, 'sm');
+      return;
+    }
+
+    const quotedText = quoted.conversation || quoted.extendedTextMessage?.text || '';
+    const mediaType = detectMediaType(quoted);
+    let payload;
+
+    try {
+      if (mediaType) {
+        // Same synthetic-wrapper trick as !savenote/!savesticker.
+        const synthetic = {
+          key: {
+            remoteJid: contextInfo.remoteJid || msg.key.remoteJid,
+            id: contextInfo.stanzaId,
+            fromMe: false,
+          },
+          message: quoted,
+        };
+        const media = await downloadAnyMedia(synthetic, mediaType, quoted[mediaType]);
+        if (!media) {
+          await sendCommandFeedback(sock, userId, msg, 'That file is too large to schedule (max 8MB).', 'sm');
+          return;
+        }
+        payload = {
+          jid: found.jid,
+          kind: 'media',
+          data: media.buffer.toString('base64'),
+          mimetype: media.mimetype,
+          mediaType: media.mediaType,
+          fileName: media.fileName,
+          caption: media.caption || '',
+          ptt: !!quoted[mediaType]?.ptt,
+        };
+      } else if (quotedText) {
+        payload = { jid: found.jid, kind: 'text', text: quotedText };
+      } else {
+        await sendCommandFeedback(sock, userId, msg, "There's nothing to send in that message.", 'sm');
+        return;
+      }
+
+      await createScheduledTask({
+        sessionId: userId,
+        type: 'scheduled_send',
+        payload,
+        runAt: split.runAt.toISOString(),
+      });
+    } catch (err) {
+      console.error(`[${userId}] !sm failed:`, describeFetchError(err));
+      await sendCommandFeedback(sock, userId, msg, "Couldn't schedule that -- try again?", 'sm');
+      return;
+    }
+
+    const what = payload.kind === 'media' ? describeMediaKind(payload.mediaType) : 'message';
+    await sendCommandFeedback(
+      sock,
+      userId,
+      msg,
+      `📅 Scheduled ${what} → ${found.label}\n${describeRunAt(split.runAt, timezone)} (${timezone})`,
+      'sm-confirm',
+    );
+  }
+
   // "!contacts [name]" -- owner-only. Without a name it's a health check
   // on the directory itself; with one it's a dry run of exactly the
   // resolution "!ag" and "!sm" perform, so a failure to find someone can
@@ -2702,6 +2853,15 @@ export async function startSession(userId, phoneNumber) {
         // "!ag <instruction>" -- owner-only, and checked before the
         // plugin-command forwarding below so the agent's own confirmation
         // replies ("!ag yes") never get treated as a fresh instruction.
+        const smMatch = text.match(SM_COMMAND);
+        if (smMatch) {
+          const scheduled = deriveScheduledSendConfig(await refreshPluginConfigs());
+          if (scheduled.enabled) {
+            await handleScheduleMessageCommand(userId, sock, msg, smMatch[1], scheduled.timezone);
+            continue;
+          }
+        }
+
         const contactsMatch = text.match(CONTACTS_COMMAND);
         if (contactsMatch) {
           await handleContactsCommand(userId, sock, msg, contactsMatch[1]);

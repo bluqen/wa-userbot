@@ -23,7 +23,8 @@ export type PluginKey =
   | 'timer'
   | 'session_status'
   | 'emoji_animate'
-  | 'agent';
+  | 'agent'
+  | 'scheduled_send';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -51,6 +52,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'session_status',
   'emoji_animate',
   'agent',
+  'scheduled_send',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -174,6 +176,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'Just say what you want done -- "!ag tell mum I am running late".',
     icon: '🤖',
   },
+  scheduled_send: {
+    name: 'Scheduled Messages',
+    description: 'Reply to anything with "!sm mum 5pm" to send it later.',
+    icon: '📅',
+  },
   session_status: {
     name: 'Session Info',
     description: 'Check this session\'s connection and plugin count with "!status" -- admins can also run "!status all" for every shard.',
@@ -264,6 +271,9 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   session_status: {},
   emoji_animate: {},
   agent: {},
+  scheduled_send: {
+    timezone: 'UTC',
+  },
 };
 
 export function isPluginKey(key: string): key is PluginKey {

@@ -40,6 +40,9 @@ import TranslateSettings, {
 import TimerSettings, { type TimerSettingsValue } from '@/components/plugins/TimerSettings';
 import AnimateSettings from '@/components/plugins/AnimateSettings';
 import AgentSettings from '@/components/plugins/AgentSettings';
+import ScheduledSendSettings, {
+  type ScheduledSendSettingsValue,
+} from '@/components/plugins/ScheduledSendSettings';
 
 type PluginConfig = {
   key: string;
@@ -210,6 +213,12 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
               )}
               {plugin.key === 'emoji_animate' && <AnimateSettings />}
               {plugin.key === 'agent' && <AgentSettings />}
+              {plugin.key === 'scheduled_send' && (
+                <ScheduledSendSettings
+                  value={plugin.settings as ScheduledSendSettingsValue}
+                  onSave={(settings) => handleSaveSettings(plugin.key, settings)}
+                />
+              )}
             </PluginCard>
           ))
         )}

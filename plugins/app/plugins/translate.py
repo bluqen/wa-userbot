@@ -2,7 +2,7 @@ import re
 from typing import Optional
 
 from .. import llm
-from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+from ..plugin_base import MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 
 # "!translate <language> <text>" / "!tl <language> <text>", or reply to a
 # message with just "!tl <language>" to translate the quoted message
@@ -26,7 +26,7 @@ class TranslatePlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
         # Group-gating and the provider check are deliberately *not* done
@@ -45,8 +45,7 @@ class TranslatePlugin(Plugin):
             return None
 
         config = resolve_settings(self.config, ctx.from_jid)
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return Reply(text="!translate isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not llm.has_provider():

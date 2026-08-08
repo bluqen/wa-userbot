@@ -6,7 +6,8 @@ from typing import Optional
 
 import httpx
 
-from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolve_settings
+from ..media_fetch import download_capped
+from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 from ..stale_cache import maybe_sweep
 
 EIGHT_BALL_COMMAND = re.compile(r"^!8ball(?:\s+.+)?$", re.IGNORECASE)
@@ -94,7 +95,7 @@ class GamesPlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
         # Group-gating is deliberately *not* checked here -- see handle()
@@ -119,8 +120,7 @@ class GamesPlugin(Plugin):
         key = (ctx.user_id, ctx.from_jid)
 
         config = resolve_settings(self.config, ctx.from_jid)
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return Reply(text="Games aren't turned on for group chats -- ask the bot owner to enable it.")
 
         if EIGHT_BALL_COMMAND.match(text):
@@ -209,18 +209,4 @@ def _fetch_meme(subreddit: str) -> Reply:
 
 
 def _download_meme_image(url: str) -> bytes:
-    with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-        with client.stream("GET", url) as res:
-            res.raise_for_status()
-            content_length = res.headers.get("content-length")
-            if content_length and int(content_length) > MAX_MEME_IMAGE_BYTES:
-                raise ValueError(f"image too large ({content_length} bytes, max {MAX_MEME_IMAGE_BYTES})")
-
-            chunks = []
-            total = 0
-            for chunk in res.iter_bytes():
-                total += len(chunk)
-                if total > MAX_MEME_IMAGE_BYTES:
-                    raise ValueError(f"image exceeded {MAX_MEME_IMAGE_BYTES} bytes while downloading")
-                chunks.append(chunk)
-            return b"".join(chunks)
+    return download_capped(url, max_bytes=MAX_MEME_IMAGE_BYTES, timeout=20.0, label="image")

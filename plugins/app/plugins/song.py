@@ -6,7 +6,8 @@ from typing import Optional
 
 import httpx
 
-from ..plugin_base import AudioAttachment, MessageContext, Plugin, Reply, resolve_settings
+from ..media_fetch import download_capped
+from ..plugin_base import AudioAttachment, MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 
 # Jamendo hosts independent music explicitly released under Creative
 # Commons / royalty-free terms and runs a public API specifically meant
@@ -41,7 +42,7 @@ class SongPlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
         # Group-gating and the API-key check are deliberately *not* done
@@ -60,8 +61,7 @@ class SongPlugin(Plugin):
             return None
 
         config = resolve_settings(self.config, ctx.from_jid)
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return Reply(text="!song isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not JAMENDO_CLIENT_ID:
@@ -144,21 +144,4 @@ def _search_track(query: str) -> Optional[dict]:
 
 
 def _download_track(url: str) -> bytes:
-    # Streamed (rather than client.get(url).content) so an oversized file
-    # aborts partway through instead of first buffering the whole thing
-    # just to throw it away a moment later.
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-        with client.stream("GET", url) as res:
-            res.raise_for_status()
-            content_length = res.headers.get("content-length")
-            if content_length and int(content_length) > MAX_TRACK_BYTES:
-                raise ValueError(f"track too large ({content_length} bytes, max {MAX_TRACK_BYTES})")
-
-            chunks = []
-            total = 0
-            for chunk in res.iter_bytes():
-                total += len(chunk)
-                if total > MAX_TRACK_BYTES:
-                    raise ValueError(f"track exceeded {MAX_TRACK_BYTES} bytes while downloading")
-                chunks.append(chunk)
-            return b"".join(chunks)
+    return download_capped(url, max_bytes=MAX_TRACK_BYTES, timeout=30.0, label="track")

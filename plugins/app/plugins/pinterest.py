@@ -6,7 +6,8 @@ from typing import List, Optional
 
 import httpx
 
-from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolve_settings
+from ..media_fetch import download_capped
+from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 
 # Pinterest's own API is OAuth/business-app-only and has no public keyword
 # image search -- there's no legitimate free/keyless way to "search
@@ -34,7 +35,7 @@ class PinterestPlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
         # Group-gating and the API-key check are deliberately *not* done
@@ -53,8 +54,7 @@ class PinterestPlugin(Plugin):
             return None
 
         config = resolve_settings(self.config, ctx.from_jid)
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return Reply(text="!pinterest isn't turned on for group chats -- ask the bot owner to enable it.")
 
         if not PEXELS_API_KEY:
@@ -114,18 +114,4 @@ def _search_images(query: str) -> List[str]:
 
 
 def _download_image(url: str) -> bytes:
-    with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-        with client.stream("GET", url) as res:
-            res.raise_for_status()
-            content_length = res.headers.get("content-length")
-            if content_length and int(content_length) > MAX_IMAGE_BYTES:
-                raise ValueError(f"image too large ({content_length} bytes, max {MAX_IMAGE_BYTES})")
-
-            chunks = []
-            total = 0
-            for chunk in res.iter_bytes():
-                total += len(chunk)
-                if total > MAX_IMAGE_BYTES:
-                    raise ValueError(f"image exceeded {MAX_IMAGE_BYTES} bytes while downloading")
-                chunks.append(chunk)
-            return b"".join(chunks)
+    return download_capped(url, max_bytes=MAX_IMAGE_BYTES, timeout=20.0, label="image")

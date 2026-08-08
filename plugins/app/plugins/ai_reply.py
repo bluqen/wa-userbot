@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 from .. import llm
 from ..personalities import get_personality_prompt
-from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+from ..plugin_base import MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 from ..stale_cache import maybe_sweep
 
 BASE_INSTRUCTIONS = (
@@ -206,14 +206,13 @@ class AIReplyPlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
         if ctx.incoming_sticker_bytes and config.get("replyToStickers", True) is False:
             return False
 
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return False
 
         cooldown_minutes = config.get("cooldownMinutes", 0)

@@ -118,6 +118,37 @@ def resolve_settings(config: dict, from_jid: str) -> dict:
     return config
 
 
+def is_disabled(config: dict) -> bool:
+    """True only when a plugin's `enabled` setting is explicitly off.
+    Every plugin's stored config defaults to enabled unless PLUGIN_DEFAULTS
+    (web/lib/plugins.ts) says otherwise, so a missing/None value here is
+    NOT the same as disabled -- only an explicit False is. Shared because
+    `config.get("enabled") is False` used to be copy-pasted verbatim as
+    the first line of match() in eight different plugin files.
+    """
+    return config.get("enabled") is False
+
+
+def is_group_blocked(config: dict, from_jid: str, key: str = "replyInGroups") -> bool:
+    """True when `from_jid` is a group chat and this plugin's group toggle
+    (off by default) isn't turned on for it. `key` exists so ai_write.py
+    can reuse this with its own differently-named `applyInGroups` setting
+    -- that one gates rewriting the owner's own outgoing messages, not
+    replying to an incoming one, so it deliberately isn't just
+    `replyInGroups` under another name.
+
+    Where a plugin calls this (match() vs handle()) is meaningful and this
+    helper doesn't decide it: returning False from match() lets a blocked
+    message silently fall through to whatever plugin runs next (typically
+    AI Reply, which would hallucinate a chatty response to the literal
+    command text) -- most plugins instead check this in handle() so a
+    blocked command gets an explicit "not enabled for groups" reply.
+    autoreply.py and ai_reply.py check it in match() on purpose, since
+    silently doing nothing is the right behavior for an ambient auto-reply.
+    """
+    return from_jid.endswith("@g.us") and not config.get(key, False)
+
+
 class Plugin(ABC):
     """Base class for every reply plugin.
 

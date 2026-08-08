@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 
 from .. import llm
 from ..personalities import get_personality_prompt
+from ..plugin_base import is_group_blocked
 from ..stale_cache import maybe_sweep
 
 BASE_INSTRUCTIONS = (
@@ -49,8 +50,7 @@ class AIWritePlugin:
         self.config = config or {}
 
     def should_process(self, session_id: str, chat_jid: str, text: str) -> bool:
-        is_group = chat_jid.endswith("@g.us")
-        if is_group and not self.config.get("applyInGroups", False):
+        if is_group_blocked(self.config, chat_jid, key="applyInGroups"):
             return False
 
         min_length = int(self.config.get("minLength", 4))

@@ -8,7 +8,7 @@ import httpx
 from dotenv import load_dotenv
 
 from .. import llm
-from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+from ..plugin_base import MessageContext, Plugin, Reply, is_disabled, resolve_settings
 from ..stale_cache import maybe_sweep
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
@@ -47,7 +47,7 @@ class LeadCapturePlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
         if ctx.from_jid.endswith("@g.us"):
             return False

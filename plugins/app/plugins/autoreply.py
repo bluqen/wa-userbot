@@ -1,7 +1,7 @@
 import time
 from typing import Optional, Tuple
 
-from ..plugin_base import MessageContext, Plugin, Reply, resolve_settings
+from ..plugin_base import MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 from ..stale_cache import maybe_sweep
 
 # (session_id, contact_jid) -> unix timestamp of the last auto-reply sent.
@@ -30,11 +30,10 @@ class AutoReplyPlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return False
 
         cooldown_minutes = config.get("cooldownMinutes", 0)

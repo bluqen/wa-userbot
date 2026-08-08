@@ -3,9 +3,8 @@ import re
 import urllib.parse
 from typing import Optional
 
-import httpx
-
-from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, resolve_settings
+from ..media_fetch import download_capped
+from ..plugin_base import ImageAttachment, MessageContext, Plugin, Reply, is_disabled, is_group_blocked, resolve_settings
 
 # Pollinations.ai serves free, keyless AI image generation over a plain GET
 # request -- no signup, no API key, no credit card. Anonymous use is rate
@@ -33,7 +32,7 @@ class ImaginePlugin(Plugin):
 
     def match(self, ctx: MessageContext) -> bool:
         config = resolve_settings(self.config, ctx.from_jid)
-        if config.get("enabled") is False:
+        if is_disabled(config):
             return False
 
         # Group-gating is deliberately *not* checked here -- see handle()
@@ -52,8 +51,7 @@ class ImaginePlugin(Plugin):
             return None
 
         config = resolve_settings(self.config, ctx.from_jid)
-        is_group = ctx.from_jid.endswith("@g.us")
-        if is_group and not config.get("replyInGroups", False):
+        if is_group_blocked(config, ctx.from_jid):
             return Reply(text="!imagine isn't turned on for group chats -- ask the bot owner to enable it.")
 
         prompt = (match.group(1) or "").strip()
@@ -76,25 +74,12 @@ class ImaginePlugin(Plugin):
 
 def _generate_image(prompt: str) -> bytes:
     url = POLLINATIONS_URL.format(prompt=urllib.parse.quote(prompt))
-    # Streamed and capped the same way song.py downloads a track -- image
-    # generation can also legitimately take a while (the model runs on
-    # request), so this gets a generous timeout on top of the byte cap.
-    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-        with client.stream(
-            "GET",
-            url,
-            params={"width": 768, "height": 768, "nologo": "true"},
-        ) as res:
-            res.raise_for_status()
-            content_length = res.headers.get("content-length")
-            if content_length and int(content_length) > MAX_IMAGE_BYTES:
-                raise ValueError(f"image too large ({content_length} bytes, max {MAX_IMAGE_BYTES})")
-
-            chunks = []
-            total = 0
-            for chunk in res.iter_bytes():
-                total += len(chunk)
-                if total > MAX_IMAGE_BYTES:
-                    raise ValueError(f"image exceeded {MAX_IMAGE_BYTES} bytes while downloading")
-                chunks.append(chunk)
-            return b"".join(chunks)
+    # Generous timeout on top of the usual byte cap -- image generation can
+    # legitimately take a while since the model runs on request.
+    return download_capped(
+        url,
+        max_bytes=MAX_IMAGE_BYTES,
+        timeout=60.0,
+        params={"width": 768, "height": 768, "nologo": "true"},
+        label="image",
+    )

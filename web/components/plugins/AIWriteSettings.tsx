@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useSaveState } from '@/lib/useSaveState';
+import SaveButton from '@/components/SaveButton';
 import { personalitiesByCategory, getPersonality } from '@/lib/personalities';
 
 export type AIWriteSettingsValue = {
@@ -22,17 +24,7 @@ export default function AIWriteSettings({
   onSave: (value: AIWriteSettingsValue) => Promise<void>;
 }) {
   const [form, setForm] = useState(value);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    setSaved(false);
-    await onSave(form);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
+  const { saving, saved, save } = useSaveState(onSave);
 
   const isCustom = form.styleId === 'custom';
   const selected =
@@ -148,13 +140,7 @@ export default function AIWriteSettings({
         </p>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
-      >
-        {saving ? 'Saving...' : saved ? 'Saved!' : 'Save settings'}
-      </button>
+      <SaveButton saving={saving} saved={saved} onClick={() => save(form)} />
     </div>
   );
 }

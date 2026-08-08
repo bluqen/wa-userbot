@@ -79,6 +79,12 @@ const HELP_COMMAND = /^!help$/i;
 // Reply to a running timer's own message with "!stop" to cancel it.
 const STOP_COMMAND = /^!stop$/i;
 
+// "!contacts" on its own reports how many names the bot can actually see;
+// "!contacts mum" shows what a given name would resolve to. Exists because
+// "I couldn't find a contact called dad" is otherwise indistinguishable
+// from "the contact sync never happened" -- which was a real bug.
+const CONTACTS_COMMAND = /^!contacts(?:\s+([\s\S]+))?$/i;
+
 // "!ag <instruction>" / "!agent <instruction>", plus the confirmation
 // replies "!ag yes" / "!ag no" that gate anything reaching another person.
 const AGENT_COMMAND = /^!ag(?:ent)?(?:\s+([\s\S]+))?$/i;
@@ -278,6 +284,11 @@ const HELP_SECTIONS = [
         key: 'session_status',
         name: 'Session Info',
         lines: ["!status -- this session's own connection info", '!status all -- every shard (admins only)'],
+      },
+      {
+        key: null,
+        name: 'Contacts (always on)',
+        lines: ['!contacts -- how many names the bot can see', '!contacts <name> -- check what a name resolves to'],
       },
     ],
   },
@@ -1870,6 +1881,62 @@ export async function startSession(userId, phoneNumber) {
     );
   }
 
+  // "!contacts [name]" -- owner-only. Without a name it's a health check
+  // on the directory itself; with one it's a dry run of exactly the
+  // resolution "!ag" and "!sm" perform, so a failure to find someone can
+  // be diagnosed without sending anything to anyone.
+  async function handleContactsCommand(userId, sock, msg, rawQuery) {
+    const query = (rawQuery || '').trim();
+
+    if (!query) {
+      const lines = [
+        `📇 ${contactDirectory.size} contact${contactDirectory.size === 1 ? '' : 's'}, ` +
+          `${groupDirectory.size} group${groupDirectory.size === 1 ? '' : 's'}`,
+      ];
+      if (contactDirectory.size === 0) {
+        lines.push(
+          '',
+          "The address book hasn't synced yet. WhatsApp sends it once, on connect -- " +
+            'reconnect this session from the dashboard and give it a minute.',
+        );
+      } else {
+        const sample = [...contactDirectory.values()]
+          .map((n) => n.name || n.notify || n.verifiedName)
+          .filter(Boolean)
+          .slice(0, 8);
+        if (sample.length) lines.push('', `e.g. ${sample.join(', ')}`);
+        lines.push('', 'Try "!contacts <name>" to check one.');
+      }
+      await sendCommandFeedback(sock, userId, msg, lines.join('\n'), 'contacts');
+      return;
+    }
+
+    const found = resolveTarget(query, { includeGroups: true });
+    if (found.status === 'none') {
+      await sendCommandFeedback(sock, userId, msg, `❌ Nothing matches "${query}".`, 'contacts');
+      return;
+    }
+    if (found.status === 'ambiguous') {
+      const names = found.candidates.map((c) => `• ${c.label}`).join('\n');
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        `⚠️ "${query}" could be:\n${names}\n\nBe more specific.`,
+        'contacts',
+      );
+      return;
+    }
+    const kind = found.kind === 'group' ? 'group' : found.kind === 'phone' ? 'number' : 'contact';
+    await sendCommandFeedback(
+      sock,
+      userId,
+      msg,
+      `✅ "${query}" → ${found.label} (${kind})`,
+      'contacts',
+    );
+  }
+
   // "!status" -- owner-only readout of this session's own state: which
   // gateway/plugin-engine pair it's running against, how long the socket
   // has been up, and how many plugins are currently enabled.
@@ -1923,6 +1990,7 @@ export async function startSession(userId, phoneNumber) {
     const lines = [
       `🟢 Connected -- up ${uptime}`,
       `🧩 ${enabledCount}/${plugins.length} plugins enabled`,
+      `📇 ${contactDirectory.size} contacts, ${groupDirectory.size} groups`,
       `🌐 Gateway: ${gatewayUrl}`,
       `🔌 Plugin engine: ${pluginEngineUrl}`,
     ];
@@ -2120,6 +2188,25 @@ export async function startSession(userId, phoneNumber) {
     }
   }
 
+  // Groups the account is a member of, by name -- so a target can be
+  // written the way it appears in the app ("Study Group 2026") rather
+  // than as an opaque @g.us id. Refreshed on connect and periodically,
+  // since groups get renamed, joined and left over a session's lifetime.
+  const groupDirectory = new Map(); // jid -> subject
+
+  async function refreshGroupDirectory() {
+    try {
+      const groups = await sock.groupFetchAllParticipating();
+      groupDirectory.clear();
+      for (const [jid, meta] of Object.entries(groups || {})) {
+        if (meta?.subject) groupDirectory.set(jid, meta.subject);
+      }
+      console.log(`[${userId}] group directory: ${groupDirectory.size} group(s)`);
+    } catch (err) {
+      console.error(`[${userId}] failed to fetch groups:`, err.message);
+    }
+  }
+
   // Resolves a name the owner used ("mum") to exactly one real contact.
   // Returns { status: 'ok', jid, label } | { status: 'none' } |
   // { status: 'ambiguous', candidates }.
@@ -2130,7 +2217,28 @@ export async function startSession(userId, phoneNumber) {
   // anything -- so an exact "Mum" wins outright even though "Mum's
   // Neighbour" also contains it, but two equally-good matches stop the
   // whole plan rather than picking one.
-  function resolveAgentContact(query) {
+  // Every name the directories know, as a flat list the matcher can scan.
+  // `includeGroups` is off for the agent (which messages people) and on
+  // for "!sm", where "Study Group 2026" is a legitimate target.
+  function directoryEntries({ includeGroups }) {
+    const entries = [];
+    for (const [jid, names] of contactDirectory) {
+      entries.push({
+        jid,
+        label: names.name || names.notify || names.verifiedName,
+        names: [names.name, names.notify, names.verifiedName],
+        kind: 'contact',
+      });
+    }
+    if (includeGroups) {
+      for (const [jid, subject] of groupDirectory) {
+        entries.push({ jid, label: subject, names: [subject], kind: 'group' });
+      }
+    }
+    return entries;
+  }
+
+  function resolveTarget(query, { includeGroups = false } = {}) {
     const wanted = normalizeContactName(query);
     if (!wanted) return { status: 'none' };
 
@@ -2139,21 +2247,20 @@ export async function startSession(userId, phoneNumber) {
     // contacts at all.
     const digits = (query || '').replace(/[^\d]/g, '');
     if (/^\+?[\d\s-]+$/.test((query || '').trim()) && digits.length >= 7) {
-      return { status: 'ok', jid: `${digits}@s.whatsapp.net`, label: `+${digits}` };
+      return { status: 'ok', jid: `${digits}@s.whatsapp.net`, label: `+${digits}`, kind: 'phone' };
     }
 
     const exact = [];
     const prefix = [];
     const substring = [];
-    for (const [jid, names] of contactDirectory) {
-      const label = names.name || names.notify || names.verifiedName;
-      for (const candidate of [names.name, names.notify, names.verifiedName]) {
+    for (const entry of directoryEntries({ includeGroups })) {
+      for (const candidate of entry.names) {
         const normalized = normalizeContactName(candidate);
         if (!normalized) continue;
-        if (normalized === wanted) { exact.push({ jid, label }); break; }
+        if (normalized === wanted) { exact.push(entry); break; }
         // Word-boundary-ish: "mum" matches "mum smith", not "mumbai".
-        if (normalized.startsWith(`${wanted} `)) { prefix.push({ jid, label }); break; }
-        if (normalized.includes(wanted)) { substring.push({ jid, label }); break; }
+        if (normalized.startsWith(`${wanted} `)) { prefix.push(entry); break; }
+        if (normalized.includes(wanted)) { substring.push(entry); break; }
       }
     }
 
@@ -2161,7 +2268,18 @@ export async function startSession(userId, phoneNumber) {
     const unique = [...new Map(tier.map((c) => [c.jid, c])).values()];
     if (unique.length === 0) return { status: 'none' };
     if (unique.length > 1) return { status: 'ambiguous', candidates: unique.slice(0, 5) };
-    return { status: 'ok', jid: unique[0].jid, label: unique[0].label || unique[0].jid.split('@')[0] };
+    return {
+      status: 'ok',
+      jid: unique[0].jid,
+      label: unique[0].label || unique[0].jid.split('@')[0],
+      kind: unique[0].kind,
+    };
+  }
+
+  // The agent resolves people only -- see resolveTarget for why groups are
+  // opt-in rather than always included.
+  function resolveAgentContact(query) {
+    return resolveTarget(query, { includeGroups: false });
   }
 
   function resolveRemoteJid(remoteJid) {
@@ -2193,6 +2311,8 @@ export async function startSession(userId, phoneNumber) {
 
   const LID_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
   let lidRefreshInterval = null;
+  const GROUP_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+  let groupRefreshInterval = null;
 
   const sock = makeWASocket({
     version,
@@ -2213,6 +2333,17 @@ export async function startSession(userId, phoneNumber) {
   sock.ev.on('creds.update', saveCreds);
   sock.ev.on('contacts.upsert', recordContacts);
   sock.ev.on('contacts.update', recordContacts);
+  // The one that actually matters for a name directory. contacts.upsert/
+  // update only fire for *changes*; the address book itself arrives once,
+  // in bulk, as part of the initial history sync. Listening only to the
+  // change events meant the directory started empty and stayed that way
+  // for an already-synced account -- which is exactly why "!ag tell dad
+  // ..." couldn't find a contact called "dad".
+  sock.ev.on('messaging-history.set', ({ contacts }) => {
+    if (!contacts?.length) return;
+    recordContacts(contacts);
+    console.log(`[${userId}] history sync: +${contacts.length} contacts (directory now ${contactDirectory.size})`);
+  });
 
   // Resolves once we either have a pairing code to hand back, the socket
   // connected outright (already-registered session), or it closed before
@@ -2252,6 +2383,11 @@ export async function startSession(userId, phoneNumber) {
       resolvePairingSettled();
       refreshLidMappings();
       lidRefreshInterval = setInterval(refreshLidMappings, LID_REFRESH_INTERVAL_MS);
+      // Groups aren't part of the contacts sync -- they have to be asked
+      // for. Refreshed on the same cadence so renames, joins and leaves
+      // get picked up without a reconnect.
+      refreshGroupDirectory();
+      groupRefreshInterval = setInterval(refreshGroupDirectory, GROUP_REFRESH_INTERVAL_MS);
 
       // A contact this account has blocked still accepts outgoing messages
       // at the protocol level -- the server acks them and hands back a real
@@ -2273,6 +2409,7 @@ export async function startSession(userId, phoneNumber) {
         .catch((err) => console.error(`[${userId}] failed to fetch blocklist:`, err.message));
     } else if (connection === 'close') {
       clearInterval(lidRefreshInterval);
+      clearInterval(groupRefreshInterval);
       clearAllTimers();
       const statusCode =
         lastDisconnect?.error instanceof Boom
@@ -2565,6 +2702,12 @@ export async function startSession(userId, phoneNumber) {
         // "!ag <instruction>" -- owner-only, and checked before the
         // plugin-command forwarding below so the agent's own confirmation
         // replies ("!ag yes") never get treated as a fresh instruction.
+        const contactsMatch = text.match(CONTACTS_COMMAND);
+        if (contactsMatch) {
+          await handleContactsCommand(userId, sock, msg, contactsMatch[1]);
+          continue;
+        }
+
         const agentMatch = text.match(AGENT_COMMAND);
         if (agentMatch) {
           const agentConfig = deriveAgentConfig(await refreshPluginConfigs());

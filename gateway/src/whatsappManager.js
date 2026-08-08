@@ -27,6 +27,8 @@ import { splitTargetAndTime, describeRunAt, isValidTimeZone } from './scheduleTi
 import {
   createScheduledTask,
   cancelTimerTask,
+  fetchPendingScheduledSends,
+  cancelScheduledSend,
   saveSticker,
   fetchSticker,
   fetchSessionPluginConfigs,
@@ -299,6 +301,8 @@ const HELP_SECTIONS = [
           'reply to anything with !sm <who> <when> to send it later',
           'e.g. !sm mum 5pm / !sm +234... 4h / !sm Study Group 2026 6:30pm',
           'works for photos, documents, voice notes -- not just text',
+          '!sm list -- see what\'s pending, numbered',
+          '!sm cancel <number> -- cancel one from that list',
         ],
       },
       {
@@ -1916,17 +1920,121 @@ export async function startSession(userId, phoneNumber) {
     );
   }
 
+  // The numbering "!sm list" hands out and "!sm cancel <n>" consumes.
+  // Session-scoped, not per-chat: there's one owner and realistically one
+  // list/cancel flow at a time, unlike pendingAgentPlans above (which is
+  // per-chat because several different agent confirmations really can be
+  // in flight in different conversations simultaneously).
+  //
+  // Numbers stay fixed to the snapshot "!sm list" printed rather than
+  // being live-renumbered as things get cancelled -- so "cancel 1" then
+  // "cancel 3" both still mean what the owner saw on screen, not
+  // whatever's shifted into those slots since.
+  let lastSmListing = { ids: [], createdAt: 0 };
+  const SM_LISTING_TTL_MS = 10 * 60 * 1000;
+
+  // "!sm list" -- summaries only, never media (see fetchPendingScheduledSends
+  // for why). Numbers the results so "!sm cancel <n>" has something to
+  // reference without the owner ever having to know a task's real id.
+  async function handleSmList(userId, sock, msg, timezone) {
+    let pending;
+    try {
+      pending = await fetchPendingScheduledSends(userId);
+    } catch (err) {
+      console.error(`[${userId}] !sm list failed:`, describeFetchError(err));
+      await sendCommandFeedback(sock, userId, msg, "Couldn't load scheduled messages -- try again?", 'sm-list');
+      return;
+    }
+
+    if (pending.length === 0) {
+      lastSmListing = { ids: [], createdAt: 0 };
+      await sendCommandFeedback(sock, userId, msg, 'Nothing scheduled right now.', 'sm-list');
+      return;
+    }
+
+    lastSmListing = { ids: pending.map((t) => t.id), createdAt: Date.now() };
+
+    const lines = pending.map((task, i) => {
+      const label = labelForJid(task.jid);
+      const when = describeRunAt(new Date(task.runAt), timezone);
+      const what = task.kind === 'media' ? describeMediaKind(task.mediaType) : task.preview || 'message';
+      return `${i + 1}. ${label} -- "${what}" -- ${when} (${timezone})`;
+    });
+    await sendCommandFeedback(
+      sock,
+      userId,
+      msg,
+      `📅 Scheduled (${pending.length}):\n${lines.join('\n')}\n\nCancel one with "!sm cancel <number>".`,
+      'sm-list',
+    );
+  }
+
+  // "!sm cancel <n>" -- n refers to the last "!sm list" this session
+  // printed, not a live position, so it has to have run recently (see
+  // SM_LISTING_TTL_MS) and the number has to be one it actually listed.
+  async function handleSmCancel(userId, sock, msg, rawNumber) {
+    const n = Number(rawNumber);
+    if (!Number.isInteger(n) || n < 1) {
+      await sendCommandFeedback(sock, userId, msg, 'Usage: !sm cancel <number> -- see "!sm list" first.', 'sm-cancel');
+      return;
+    }
+    if (Date.now() - lastSmListing.createdAt > SM_LISTING_TTL_MS || lastSmListing.ids.length === 0) {
+      await sendCommandFeedback(sock, userId, msg, 'Run "!sm list" again first, then cancel by number.', 'sm-cancel');
+      return;
+    }
+    const taskId = lastSmListing.ids[n - 1];
+    if (!taskId) {
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        `There's no #${n} -- "!sm list" only showed ${lastSmListing.ids.length}.`,
+        'sm-cancel',
+      );
+      return;
+    }
+
+    let cancelled = false;
+    try {
+      cancelled = await cancelScheduledSend({ sessionId: userId, taskId });
+    } catch (err) {
+      console.error(`[${userId}] !sm cancel failed:`, describeFetchError(err));
+      await sendCommandFeedback(sock, userId, msg, "Couldn't cancel that right now -- try again?", 'sm-cancel');
+      return;
+    }
+
+    await sendCommandFeedback(
+      sock,
+      userId,
+      msg,
+      cancelled ? `🛑 Cancelled #${n}.` : `#${n} isn't pending any more -- already sent or cancelled.`,
+      'sm-cancel',
+    );
+  }
+
   // "!sm <target> <when>" -- owner-only, sent as a reply to whatever
-  // should be delivered later.
+  // should be delivered later. "!sm list" and "!sm cancel <n>" are the
+  // same command's other two modes -- see handleSmList/handleSmCancel.
   //
   // The content is captured *now*, not at send time: media URLs expire,
   // and the original could be deleted before the send lands. So the bytes
   // are stored on the task itself and replayed later, which also means a
   // scheduled photo still arrives if the original chat is gone.
   async function handleScheduleMessageCommand(userId, sock, msg, rawArgs, timezone) {
+    const args = (rawArgs || '').trim();
+
+    if (/^list$/i.test(args)) {
+      await handleSmList(userId, sock, msg, timezone);
+      return;
+    }
+    const cancelMatch = args.match(/^cancel\s+(\d+)$/i);
+    if (cancelMatch) {
+      await handleSmCancel(userId, sock, msg, cancelMatch[1]);
+      return;
+    }
+
     const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
     const quoted = contextInfo?.quotedMessage;
-    const args = (rawArgs || '').trim();
 
     if (!args || !quoted) {
       await sendCommandFeedback(
@@ -1938,7 +2046,9 @@ export async function startSession(userId, phoneNumber) {
           'e.g. !sm +2349393048203 5pm\n' +
           '     !sm mum 4h\n' +
           '     !sm Study Group 2026 6:30pm\n' +
-          '     !sm dad tomorrow 9am',
+          '     !sm dad tomorrow 9am\n\n' +
+          '!sm list -- see what\'s pending\n' +
+          '!sm cancel <number> -- cancel one from that list',
         'sm',
       );
       return;
@@ -2431,6 +2541,18 @@ export async function startSession(userId, phoneNumber) {
   // opt-in rather than always included.
   function resolveAgentContact(query) {
     return resolveTarget(query, { includeGroups: false });
+  }
+
+  // The reverse of resolveTarget -- a stored jid back to a human-readable
+  // name, for "!sm list" (a scheduled task only ever stores the resolved
+  // jid, never the name the owner typed). Falls back to a bare number
+  // rather than the full jid, since "1234567890" reads better than
+  // "1234567890@s.whatsapp.net" in a list.
+  function labelForJid(jid) {
+    if (!jid) return 'unknown';
+    if (jid.endsWith('@g.us')) return groupDirectory.get(jid) || jid.split('@')[0];
+    const names = contactDirectory.get(jidNormalizedUser(jid));
+    return names?.name || names?.notify || names?.verifiedName || jid.split('@')[0];
   }
 
   function resolveRemoteJid(remoteJid) {

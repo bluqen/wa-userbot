@@ -66,6 +66,35 @@ export async function cancelTimerTask({ sessionId, messageId }) {
   return !!data.cancelled;
 }
 
+// This session's pending "!sm" sends, for "!sm list" -- summaries only
+// (jid, kind, a short text preview), never the media bytes. See the
+// /pending route for why: a scheduled photo's payload carries its whole
+// file as base64, and pulling that into memory just to print a list is
+// exactly the kind of thing that has already OOM'd this codebase once.
+export async function fetchPendingScheduledSends(sessionId) {
+  const res = await fetch(
+    `${WEB_APP_URL}/api/internal/scheduled-tasks/pending?sessionId=${encodeURIComponent(sessionId)}`,
+    { headers: { 'x-internal-secret': INTERNAL_API_SECRET }, signal: AbortSignal.timeout(10000) },
+  );
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  return data.tasks || [];
+}
+
+// Cancels a pending "!sm" by its task id (from fetchPendingScheduledSends).
+// Resolves true if a matching pending task was found and cancelled.
+export async function cancelScheduledSend({ sessionId, taskId }) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/scheduled-tasks/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
+    body: JSON.stringify({ sessionId, taskId }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  return !!data.cancelled;
+}
+
 // Every not-yet-completed task whose runAt has passed, for sessions
 // assigned to this gateway instance.
 export async function fetchDueTasks(gatewayUrl) {

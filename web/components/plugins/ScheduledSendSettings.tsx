@@ -84,6 +84,11 @@ export default function ScheduledSendSettings({
           Who can be a phone number, a saved contact, or a group you&apos;re in.{' '}
           <code className="rounded bg-surface-raised px-1">!schedule</code> works too.
         </p>
+        <p className="mt-2">
+          <code className="rounded bg-surface-raised px-1">!sm list</code> shows what&apos;s
+          pending, numbered &mdash; cancel one with{' '}
+          <code className="rounded bg-surface-raised px-1">!sm cancel &lt;number&gt;</code>.
+        </p>
       </div>
 
       <div>

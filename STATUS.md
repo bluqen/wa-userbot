@@ -52,7 +52,7 @@ that corruption).
   socket(s). WhatsApp session credentials are stored in Postgres (not local
   files), so they survive the gateway process/disk being thrown away and
   restarted -- verified working, including across a real Render redeploy.
-- **Plugin engine** (`plugins/`) -- Python + FastAPI, six plugins:
+- **Plugin engine** (`plugins/`) -- Python + FastAPI, nine Python-backed plugins, plus several gateway-only ones (see README.md for the current full list):
   - **Auto Reply** -- fixed message, group/cooldown controls, per-contact
     exceptions.
   - **AI Reply** -- LLM-generated replies (Groq with a multi-model
@@ -70,7 +70,7 @@ that corruption).
     messages (fix typos/grammar, or rewrite tone/translate) via WhatsApp's
     native edit-message feature. Has its own opt-in cooldown to cut LLM
     call volume.
-  - **Song Fetcher** -- `/song <genre, mood, or artist>` sends back a
+  - **Song Fetcher** -- `!song <genre, mood, or artist>` sends back a
     Creative-Commons-licensed track from Jamendo's catalog (independent
     music, not mainstream releases) with artist/license attribution.
     Requires `JAMENDO_CLIENT_ID` (free signup) on the plugin engine.
@@ -79,7 +79,7 @@ that corruption).
     (text, image, video, audio, sticker, document), in their own "Message
     Yourself" chat rather than back into the original chat/group.
   - **Notes** -- gateway-only; owner reply-quotes any message (text or
-    media) with `/savenote <name>` to save it, then recalls it into any
+    media) with `!savenote <name>` to save it, then recalls it into any
     chat later with `#name`.
 - **Admin panel** (`/dashboard/admin`, `web/`) -- restricted to emails listed
   in `ADMIN_EMAILS` (comma-separated env var; redeploy needed to change).
@@ -247,7 +247,7 @@ that corruption).
   cap** -- discovered the hard way when the plugin engine started OOMing;
   `song.py`'s Jamendo download had none. 8MB is the cap used both there
   and for WhatsApp media in the gateway (anti-delete, notes,
-  `/savesticker`) -- match it if you add another media-handling path.
+  `!savesticker`) -- match it if you add another media-handling path.
 
 ## Quick health check for a fresh session
 
@@ -334,7 +334,7 @@ for the *specific* error, not just "down").
   `GROQ_FALLBACK_MODELS` (env var, comma-separated) before falling back to
   Gemini. Groq's rate limits are per-model, not account-wide, so a
   different model can still have headroom when the primary one is capped.
-- **Sticker system** -- `/savesticker <tag>` (reply-quote a sticker
+- **Sticker system** -- `!savesticker <tag>` (reply-quote a sticker
   message) teaches the bot a sticker; AI Reply can send one back via a
   `[[STICKER:tag]]` marker (opt-in `useSticker` + `stickerChance` slider).
   Multiple stickers can share the same tag on purpose -- re-saving a tag
@@ -349,7 +349,7 @@ for the *specific* error, not just "down").
   enabled to act on the result. AI Reply gets a light heads-up when
   working from a transcript so it doesn't overreact to an occasional
   mis-heard word.
-- **Song Fetcher plugin** -- `/song <genre, mood, or artist>` searches
+- **Song Fetcher plugin** -- `!song <genre, mood, or artist>` searches
   Jamendo's Creative-Commons catalog (built for exactly this kind of
   third-party redistribution, unlike ripping YouTube/Spotify) and sends
   back a track with artist/license attribution. Requires
@@ -368,10 +368,10 @@ for the *specific* error, not just "down").
   someone else's retracted message into a conflict. Off by default, with
   a separate toggle for whether it covers group chats.
 - **Notes system** -- gateway-only. Owner reply-quotes any message (text
-  or media -- image/video/audio/sticker/document) with `/savenote <name>`
+  or media -- image/video/audio/sticker/document) with `!savenote <name>`
   to save it (overwrites if the name's reused), then drops it into any
   chat later by typing `#name`. Both commands are owner-only (`fromMe`),
-  same as `/savesticker`.
+  same as `!savesticker`.
 - **Plugins page redesigned as an icon grid** -- mod-menu style (each
   plugin gets a big emoji icon + name + enable toggle in a responsive
   grid); clicking a tile opens its settings in a modal instead of the old
@@ -426,5 +426,36 @@ deployed services specifically:
   fix addressed real bugs, but some pressure here is inherent to what
   those features do, and the free-tier plan may need revisiting for that
   one service specifically.
+
+## This file stops updating in detail here
+
+Everything above this point is accurate as a historical record, but a
+large amount of work has landed since and this file was not kept current
+line-by-line through it (that would mean rewriting a large fraction of it
+every session -- not worth doing versus just pointing at what's actually
+current). For **what plugins/commands exist now**, `web/lib/plugins.ts` is
+the source of truth, not this file's plugin descriptions above; for the
+**current architecture and command list**, see `README.md`, which was
+brought current alongside this note. For exact detail on any specific
+feature, `git log` and the commit messages themselves are more reliable
+than prose here -- this project's commit messages are written to carry
+real design reasoning, not just a one-line summary.
+
+Headline additions since the section above: a uniform `!` prefix for
+every command (there's no more `/` vs `!` split anywhere), `!help`
+(owner-only, shows every command with an on/off indicator), `!status`/
+`!status all` (session and cross-shard state, the latter admin-gated),
+`!qr`, `!translate`/`!tl`, `!timer` (live countdown under WhatsApp's edit
+window, a scheduled ping past it, `!stop` to cancel), `..happy` and other
+message animations, `!contacts` (directory health-check + name
+resolution, also what `!ag`/`!sm` resolve names against), `!sm`
+(schedule any message -- including media -- to a contact or group,
+`!sm list`/`!sm cancel <n>`), and `!ag` (the agent: plain-language
+instructions turned into a plan of WhatsApp actions, confirmed before
+anything reaches someone else -- see `gateway/src/agentActions.js` for
+the capability registry and its own extensive design comments).
+
+**All of the above needs a redeploy to take effect** -- same caveat as
+the section above, still true, now covering considerably more.
 
 Next steps are whatever the project owner wants next.

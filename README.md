@@ -36,7 +36,7 @@ credentials), kept separate so Prisma's migrations never touch it.
                          │  (Baileys)  │        gateway_auth_state
                          └─────────────┘
                                 │
-                        HTTP /message, /rewrite
+                    HTTP /message, /rewrite, /ask, /agent/plan
                                 │
                                 ▼
                          ┌─────────────┐
@@ -120,10 +120,47 @@ files -- they're gitignored.
 
 All configured per WhatsApp session from the dashboard's Plugins page
 (`/dashboard/sessions/[id]/plugins`) -- an icon grid, mod-menu style; click
-a tile to open its settings in a modal. Three (Auto Reply, AI Reply, Song
-Fetcher) go through the Python plugin engine's `/message` pipeline;
-Anti-Delete and Notes are gateway-only and never touch the plugin engine
-at all (see `gateway/README.md`).
+a tile to open its settings in a modal. The definitive, current list lives
+in `web/lib/plugins.ts` -- the dashboard itself reads from it, so it can't
+drift out of sync with reality the way a hand-written list here would.
+Roughly, by how they work:
+
+- **AI**: Auto Reply, AI Reply (100 personalities, per-contact exceptions,
+  humanlikeness slider), AI Write (edits the owner's own outgoing
+  messages), AI Ask (`!ai`/`!aie`, one-shot Q&A), **Agent** (`!ag`,
+  plain-language instructions turned into a plan of WhatsApp actions --
+  see below).
+- **Media/fun**: Song Fetcher, Imagine (AI image generation), Pinterest
+  (image search), Sticker Maker, QR Codes, the Fun pack (`!8ball`, `!rps`,
+  `!trivia`, `!meme`, voice effects), Animations (`..happy` and friends,
+  edits the owner's own message into an animated frame sequence).
+- **Utility**: Translate, Timers (live countdown under WhatsApp's edit
+  window, a scheduled ping past it), Scheduled Messages (`!sm`, reply to
+  anything -- text, photo, document, voice note -- to send it later, to a
+  contact or a group), Notes (`!savenote`/`#name`), Session Info
+  (`!status`), plus `!contacts` and `!help` (always on, no toggle).
+- **Groups**: Tag Everyone, Polls, Greetings, Anti-Link.
+
+Every command starts with `!` -- no mixed `/`/`!` convention. Owners can
+send `!help` for the live, on/off-annotated command list for that session.
+
+Gateway-only plugins (Anti-Delete, Notes, Session Info, Scheduled
+Messages, Animations, Agent, contacts/groups directory) never touch the
+Python plugin engine at all -- see `gateway/README.md`.
+
+### The agent (`!ag`)
+
+The most involved plugin: turns a plain-language instruction into a plan
+of WhatsApp actions. `!ag tell mum, dad and roger I won't be home soon`
+plans three messages, resolves each name against the real contact book,
+shows the plan, and only sends once the owner replies `!ag yes`.
+Capabilities (message, poll, remind, schedule a message, save a note,
+generate a QR code) live in one registry (`gateway/src/agentActions.js`)
+that the planner's own prompt is generated from, so it can never ask for
+something the gateway can't actually do. The owner's contact list is never
+sent to the LLM -- the planner only ever echoes back names the owner
+typed; resolving a name to a real person happens locally in the gateway.
+See that file's comments for the full design reasoning.
 
 ## Admin panel
 
@@ -140,32 +177,16 @@ sections:
   of a static env var, so it's editable at runtime without a redeploy. New
   shards get an auto-assigned fruit name (apple, apricot, ...) if you
   don't type one in. Click a shard to see the sessions currently assigned
-  to it.
+  to it. Each shard can optionally be paired with its own plugin-engine
+  instance (`pluginEngineUrl`) -- purely informational on this side (a
+  gateway reads its actual `PLUGIN_ENGINE_URL` from its own env var, not
+  from this row), so the admin panel can show and catch a mismatch in the
+  pairing rather than change runtime behavior itself.
 
-- **Auto Reply** -- fixed message, optional group-chat replies, typing
-  simulation, per-contact cooldown, per-contact exceptions.
-- **AI Reply** -- LLM-generated replies. Pick from 100 personalities (see
-  `personalities.json` at the repo root, shared between the website's
-  dropdown and the Python plugin) or write a custom one. Remembers the
-  last N messages per contact for multi-turn context. Per-contact
-  exceptions can give a specific number its own personality or exclude it
-  entirely. Also understands voice notes (transcribed via Groq Whisper)
-  and can send a saved sticker alongside a reply. A humanlikeness slider
-  (Off/Subtle/Natural/Expressive/Maximum) adds randomized delay,
-  swipe-reply/message-splitting, and a reply-length cap at higher
-  settings.
-- **AI Write** -- instantly edits the *owner's own* outgoing messages
-  (typo/grammar fixes by default, or a chosen tone/translation/custom
-  style) via WhatsApp's native message-edit feature.
-- **Song Fetcher** -- `!song <genre, mood, or artist>` sends back a
-  Creative-Commons-licensed track from Jamendo's catalog (independent
-  music, not mainstream releases) with artist/license attribution.
-  Requires a free `JAMENDO_CLIENT_ID`.
-- **Anti-Delete** -- privately tells the owner what a deleted message said
-  (any media type), in their own "Message Yourself" chat, never
-  re-posted back into the original chat/group.
-- **Notes** -- reply-quote any message with `!savenote <name>` to save it
-  (text or media), recall it into any chat later with `#name`.
+Detailed per-plugin descriptions, defaults, and dashboard copy all live in
+`web/lib/plugins.ts` and each plugin's own settings component under
+`web/components/plugins/` -- kept there rather than duplicated here so
+there's exactly one place to update when a plugin's behavior changes.
 
 ## Writing a new reply plugin
 
@@ -210,10 +231,18 @@ Current live URLs and full deployment notes are in `STATUS.md`.
   abuse protection against a real user spamming the bot -- bulk messaging
   risk remains with an unofficial WhatsApp client (Baileys). Keep volume
   reasonable.
-- Shard routing supports multiple gateway instances (managed from
+- Shard routing supports multiple gateway instances, each optionally
+  paired with its own plugin-engine instance (managed from
   `/dashboard/admin/shards`, falling back to `GATEWAY_SHARD_URLS`/
-  `GATEWAY_URL` when no shards are registered), but only one gateway
-  instance is actually running right now.
+  `GATEWAY_URL` when no shards are registered), but only one of each is
+  actually deployed right now -- the pairing exists in code, not yet in
+  practice. Also, sessions are assigned a shard once at creation time and
+  never move, so adding a shard only spreads out sessions created after
+  that point.
+- The agent (`!ag`) is tested thoroughly at the logic level (contact
+  resolution, plan validation, confirmation flow) but hasn't been run
+  against a live LLM end to end -- real prompt quality on real phrasing is
+  the open question.
 - The plugin engine's free-tier host caps memory at 512MB, which is
   genuinely tight for a service that passes real audio files through
   itself (Groq Whisper transcription, Jamendo song downloads) -- both

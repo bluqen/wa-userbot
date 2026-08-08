@@ -31,11 +31,14 @@ configuration.
   user-authenticated (no browser session exists in that context); gated by
   a shared secret header (`x-internal-secret` must match
   `INTERNAL_API_SECRET`). Called by the Python plugin engine to fetch
-  config+history (also piggybacks the session's saved sticker tags), and
-  to append chat messages. Also called directly by the **gateway** (not
-  just the plugin engine) for the two gateway-only features that have no
-  Python involvement at all -- Anti-Delete and Notes -- to read their own
-  enabled/settings.
+  config+history (also piggybacks the session's saved sticker tags and
+  `isAdmin` -- whether the session's owning account's email is in
+  `ADMIN_EMAILS`, used to gate the owner-only "!status all" command), and
+  to append chat messages. Also called directly by the **gateway** itself
+  (not just the plugin engine) -- on every message, TTL-cached -- for
+  every gateway-only feature that has no Python involvement at all
+  (Anti-Delete, Notes, Session Info, Scheduled Messages, Animations,
+  Agent) to read their own enabled/settings.
 - `app/api/internal/gateway-sessions` -- same shared-secret gating.
   Called by a gateway instance on startup (`?gatewayUrl=<its own URL>`) to
   find out which sessions it used to hold before the process restarted, so
@@ -45,6 +48,22 @@ configuration.
   shared-secret gating. The generic persisted-scheduler API (create a
   task, fetch a gateway's own due/incomplete tasks, mark one complete) --
   see `gateway/README.md`'s "Scheduled tasks."
+- `app/api/internal/scheduled-tasks/pending`, `.../cancel` -- same gating.
+  Backs "!sm list"/"!sm cancel" -- `pending` extracts only the summary
+  fields it needs at the SQL level (never the payload's raw `data`, which
+  for a scheduled photo/document is its whole file as base64) so listing
+  can't pull megabytes into memory just to print a numbered list; `cancel`
+  marks one task completed by id, scoped to `sessionId` + `type` so a
+  stale id reliably 404s instead of matching something else.
+- `app/api/internal/scheduled-tasks/cancel-timer` -- same gating, same
+  idea, for the other kind of pending scheduled task: a long "!timer"
+  (past WhatsApp's ~15 minute edit window) waiting to fire, matched by the
+  id of the confirmation message the owner replied "!stop" to.
+- `app/api/internal/shards-summary` -- same gating. Backs the owner-only
+  "!status all" WhatsApp command (admins only, checked via the `isAdmin`
+  flag piggybacked onto the plugins-fetch response above) -- every
+  registered shard's session count and plugin-engine pairing, for an
+  admin who wants that from chat instead of the dashboard.
 - `app/api/internal/stickers`, `.../[sessionId]/[tag]` -- same
   shared-secret gating. `POST` always inserts a new row (multiple
   stickers can share a tag on purpose -- see the `Sticker` model below);
@@ -82,21 +101,33 @@ configuration.
   `GATEWAY_SHARD_URLS`/`GATEWAY_URL` whenever there are zero active DB
   rows.
 - `lib/plugins.ts` -- the plugin registry: keys, display metadata
-  (including an emoji `icon` for the dashboard grid), default settings.
-  Add a new plugin here to give it a tile. Six keys today: `autoreply`,
-  `ai_reply`, `ai_write`, `song`, `anti_delete`, `notes` -- the last two
-  have no Python plugin behind them at all (see `plugins/README.md`), just
-  a settings row the gateway reads directly.
+  (including an emoji `icon` for the dashboard grid -- kept unique per
+  plugin so the icon grid stays scannable), default settings, and which
+  plugins a brand-new session starts with switched on
+  (`isDefaultEnabled`). 26 keys as of this writing -- growing steadily, so
+  treat that number as stale; this file itself is the actual source of
+  truth. Add a new plugin here to give it a tile. Most keys are backed by
+  a Python plugin (see `plugins/README.md`); several are gateway-only
+  (`anti_delete`, `notes`, `session_status`, `scheduled_send`,
+  `emoji_animate`, `agent`) with no Python involvement at all -- just a
+  settings row the gateway reads directly.
 - `lib/personalities.ts` -- loads `../../personalities.json` (repo root,
   shared with the Python engine) and groups it by category for the AI
   Reply/AI Write dropdowns.
-- `components/plugins/*` -- one settings component per plugin
-  (`AutoReplySettings`, `AIReplySettings`, `AIWriteSettings`,
-  `SongSettings`, `AntiDeleteSettings`, `NotesSettings`), plus
-  `ExceptionsEditor` (per-contact override list, used by Auto Reply and AI
-  Reply), `StickerManager` (view/delete saved stickers, embedded in
-  `AIReplySettings`), and `NotesManager` (view/delete saved notes, embedded
-  in `NotesSettings`).
+- `lib/useSaveState.ts` -- the saving/saved/auto-clear state every plugin
+  settings component's Save button needs, shared rather than copy-pasted
+  (it used to be, in all 16+ of them). Pairs with
+  `components/SaveButton.tsx`.
+- `components/plugins/*` -- one settings component per plugin key that
+  needs one (several trivial/no-config plugins share a common "usage
+  info only" shape and skip straight to a `<div>` of instructions -- see
+  `TagAllSettings.tsx` for the simplest example). Notable ones beyond the
+  per-plugin settings: `ExceptionsEditor` (per-contact override list, used
+  by Auto Reply and AI Reply), `StickerManager` (view/delete saved
+  stickers, embedded in `AIReplySettings`), `NotesManager` (view/delete
+  saved notes, embedded in `NotesSettings`), and `AgentSettings` /
+  `ScheduledSendSettings` (usage examples + the safety notes for `!ag` and
+  the timezone picker for `!sm`, respectively).
 - `components/plugins/PluginCard.tsx` -- a grid tile (big emoji icon, name,
   enable toggle) rather than the old inline-expanding list item; clicking
   it opens the plugin's settings component in a modal.

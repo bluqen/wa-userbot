@@ -174,7 +174,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   agent: {
     name: 'Agent',
     description: 'Just say what you want done -- "!ag tell mum I am running late".',
-    icon: '🤖',
+    icon: '🛎️',
   },
   scheduled_send: {
     name: 'Scheduled Messages',
@@ -183,7 +183,7 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
   },
   session_status: {
     name: 'Session Info',
-    description: 'Check this session\'s connection and plugin count with "!status" -- admins can also run "!status all" for every shard.',
+    description: 'Quick health check with "!status" -- what\'s connected, what\'s on.',
     icon: '📶',
   },
 };

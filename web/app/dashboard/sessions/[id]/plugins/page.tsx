@@ -43,6 +43,7 @@ import AgentSettings from '@/components/plugins/AgentSettings';
 import ScheduledSendSettings, {
   type ScheduledSendSettingsValue,
 } from '@/components/plugins/ScheduledSendSettings';
+import SessionStatusSettings from '@/components/plugins/SessionStatusSettings';
 
 type PluginConfig = {
   key: string;
@@ -219,6 +220,7 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}
+              {plugin.key === 'session_status' && <SessionStatusSettings />}
             </PluginCard>
           ))
         )}

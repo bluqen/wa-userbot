@@ -1748,7 +1748,8 @@ export async function startSession(userId, phoneNumber) {
     return lines;
   }
 
-  async function runAgentPlan(userId, sock, chatJid, prepared) {
+  async function runAgentPlan(userId, sock, msg, prepared) {
+    const chatJid = msg.key.remoteJid;
     const failures = [];
     let done = 0;
     for (const { step, def } of prepared) {
@@ -1768,8 +1769,7 @@ export async function startSession(userId, phoneNumber) {
       failures.length === 0
         ? `✅ Done (${done} ${done === 1 ? 'step' : 'steps'}).`
         : `⚠️ Ran ${done}, failed ${failures.length}: ${failures.join(', ')}`;
-    const sent = await sock.sendMessage(chatJid, { text: summary });
-    markAiSent(sent?.key?.id);
+    await sendCommandFeedback(sock, userId, msg, summary, 'ag-run');
   }
 
   // "!ag <instruction>" -- owner-only. Plans, then either runs straight
@@ -1785,34 +1785,29 @@ export async function startSession(userId, phoneNumber) {
     if (AGENT_CONFIRM_RE.test(instruction)) {
       const pending = takePendingAgentPlan(chatJid);
       if (!pending) {
-        await sock.sendMessage(chatJid, { text: 'Nothing waiting to confirm.' }, { quoted: msg });
+        await sendCommandFeedback(sock, userId, msg, 'Nothing waiting to confirm.', 'ag');
         return;
       }
-      await runAgentPlan(userId, sock, chatJid, pending.prepared);
+      await runAgentPlan(userId, sock, msg, pending.prepared);
       return;
     }
 
     if (AGENT_CANCEL_RE.test(instruction)) {
       const had = pendingAgentPlans.delete(chatJid);
-      await sock.sendMessage(
-        chatJid,
-        { text: had ? '🚫 Cancelled.' : 'Nothing waiting to cancel.' },
-        { quoted: msg },
-      );
+      await sendCommandFeedback(sock, userId, msg, had ? '🚫 Cancelled.' : 'Nothing waiting to cancel.', 'ag');
       return;
     }
 
     if (!instruction) {
-      await sock.sendMessage(
-        chatJid,
-        {
-          text:
-            'Usage: !ag <what you want done>\n\n' +
-            'e.g. "!ag tell mum and dad I won\'t be home soon"\n' +
-            '     "!ag remind me in 2h to call the bank"\n' +
-            '     "!ag ask roger if he\'s free saturday"',
-        },
-        { quoted: msg },
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        'Usage: !ag <what you want done>\n\n' +
+          'e.g. "!ag tell mum and dad I won\'t be home soon"\n' +
+          '     "!ag remind me in 2h to call the bank"\n' +
+          '     "!ag ask roger if he\'s free saturday"',
+        'ag',
       );
       return;
     }
@@ -1826,20 +1821,16 @@ export async function startSession(userId, phoneNumber) {
       });
     } catch (err) {
       console.error(`[${userId}] !ag planning failed:`, describeFetchError(err));
-      await sock.sendMessage(chatJid, { text: "Couldn't work that out right now -- try again?" }, { quoted: msg });
+      await sendCommandFeedback(sock, userId, msg, "Couldn't work that out right now -- try again?", 'ag');
       return;
     }
 
     if (result.error === 'not_ready') {
-      await sock.sendMessage(chatJid, { text: "The agent isn't ready yet -- try again later." }, { quoted: msg });
+      await sendCommandFeedback(sock, userId, msg, "The agent isn't ready yet -- try again later.", 'ag');
       return;
     }
     if (result.steps.length === 0) {
-      await sock.sendMessage(
-        chatJid,
-        { text: result.note || "I couldn't turn that into anything I can do." },
-        { quoted: msg },
-      );
+      await sendCommandFeedback(sock, userId, msg, result.note || "I couldn't turn that into anything I can do.", 'ag');
       return;
     }
 
@@ -1856,10 +1847,12 @@ export async function startSession(userId, phoneNumber) {
     // roger" quietly reaching two of the three -- the owner believing all
     // three were told is worse than nothing being sent.
     if (problems.length > 0) {
-      await sock.sendMessage(
-        chatJid,
-        { text: `🤖 I didn't run anything:\n\n${problems.map((p) => `• ${p}`).join('\n')}` },
-        { quoted: msg },
+      await sendCommandFeedback(
+        sock,
+        userId,
+        msg,
+        `🤖 I didn't run anything:\n\n${problems.map((p) => `• ${p}`).join('\n')}`,
+        'ag',
       );
       return;
     }
@@ -1870,20 +1863,18 @@ export async function startSession(userId, phoneNumber) {
     if (!touchesOthers) {
       // Nothing here leaves the owner's own chat, so there's nothing to
       // confirm -- asking would just be a pointless extra round trip.
-      await runAgentPlan(userId, sock, chatJid, prepared);
+      await runAgentPlan(userId, sock, msg, prepared);
       return;
     }
 
     pendingAgentPlans.set(chatJid, { prepared, createdAt: Date.now() });
     const noteLine = result.note ? `\n${result.note}\n` : '';
-    await sock.sendMessage(
-      chatJid,
-      {
-        text:
-          `🤖 Plan${noteLine}\n${planLines.join('\n')}\n\n` +
-          'Reply "!ag yes" to run it, "!ag no" to cancel.',
-      },
-      { quoted: msg },
+    await sendCommandFeedback(
+      sock,
+      userId,
+      msg,
+      `🤖 Plan${noteLine}\n${planLines.join('\n')}\n\nReply "!ag yes" to run it, "!ag no" to cancel.`,
+      'ag',
     );
   }
 

@@ -13,8 +13,10 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from fastapi import FastAPI
 
-from . import llm
+from . import agent, llm
 from .models import (
+    AgentPlanRequest,
+    AgentPlanResponse,
     AskRequest,
     AskResponse,
     AudioPayload,
@@ -215,6 +217,21 @@ async def handle_ask(req: AskRequest):
         temperature=0.5,
     )
     return AskResponse(answer=answer)
+
+
+@app.post("/agent/plan", response_model=AgentPlanResponse)
+async def handle_agent_plan(req: AgentPlanRequest):
+    """Backs the owner-only "!ag" command -- turns a plain-language
+    instruction into a plan of WhatsApp actions. Planning only: nothing is
+    sent from here, and no contact list is ever passed in (see agent.py for
+    why). The gateway resolves the names, shows the plan to the owner, and
+    only acts once they confirm.
+    """
+    if not llm.has_provider():
+        return AgentPlanResponse(error="not_ready")
+
+    result = agent.plan(req.instruction, [a.model_dump() for a in req.actions])
+    return AgentPlanResponse(steps=result["steps"], note=result["note"])
 
 
 @app.post("/rewrite", response_model=RewriteResponse)

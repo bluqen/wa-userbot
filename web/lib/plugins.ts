@@ -22,7 +22,8 @@ export type PluginKey =
   | 'translate'
   | 'timer'
   | 'session_status'
-  | 'emoji_animate';
+  | 'emoji_animate'
+  | 'agent';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -49,6 +50,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'timer',
   'session_status',
   'emoji_animate',
+  'agent',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -167,6 +169,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'Type "..happy" and watch your own message animate.',
     icon: '✨',
   },
+  agent: {
+    name: 'Agent',
+    description: 'Just say what you want done -- "!ag tell mum I am running late".',
+    icon: '🤖',
+  },
   session_status: {
     name: 'Session Info',
     description: 'Check this session\'s connection and plugin count with "!status" -- admins can also run "!status all" for every shard.',
@@ -256,6 +263,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
   },
   session_status: {},
   emoji_animate: {},
+  agent: {},
 };
 
 export function isPluginKey(key: string): key is PluginKey {
@@ -273,8 +281,11 @@ export function isPluginKey(key: string): key is PluginKey {
 // automatically, which would be a surprising default), welcome/antilink
 // (post into or moderate groups the owner might not actually run),
 // statusview (ambiently views everyone's WhatsApp Status -- a visible
-// side effect other people see), and sudo/leads (inert until deliberately
-// configured, or continuously scanning conversations via an LLM call).
+// side effect other people see), sudo/leads (inert until deliberately
+// configured, or continuously scanning conversations via an LLM call),
+// and agent (acts on other people's chats off an LLM's reading of a
+// free-text instruction -- it asks before anything reaches someone else,
+// but that's a capability to opt into deliberately, not to inherit).
 const DEFAULT_ENABLED_PLUGINS: ReadonlySet<PluginKey> = new Set([
   'song',
   'anti_delete',

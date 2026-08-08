@@ -15,7 +15,14 @@ import {
   clearAuthState,
   clearContactSessions,
 } from './postgresAuthState.js';
-import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers, askAI } from './pluginClient.js';
+import {
+  forwardMessage,
+  forwardOwnMessage,
+  fetchExceptionNumbers,
+  askAI,
+  planAgentActions,
+} from './pluginClient.js';
+import { AGENT_ACTIONS, buildAgentCatalog, parseAgentDelay } from './agentActions.js';
 import {
   createScheduledTask,
   cancelTimerTask,
@@ -71,6 +78,16 @@ const STATUS_COMMAND = /^!status(?:\s+(all))?$/i;
 const HELP_COMMAND = /^!help$/i;
 // Reply to a running timer's own message with "!stop" to cancel it.
 const STOP_COMMAND = /^!stop$/i;
+
+// "!ag <instruction>" / "!agent <instruction>", plus the confirmation
+// replies "!ag yes" / "!ag no" that gate anything reaching another person.
+const AGENT_COMMAND = /^!ag(?:ent)?(?:\s+([\s\S]+))?$/i;
+const AGENT_CONFIRM_RE = /^(yes|y|ok|go|do it|confirm|send)$/i;
+const AGENT_CANCEL_RE = /^(no|n|cancel|stop|nope)$/i;
+// A plan that's been sitting unconfirmed this long is almost certainly
+// forgotten -- expiring it means a stale "!ag yes" typed much later can't
+// fire off messages the owner has stopped thinking about.
+const AGENT_PLAN_TTL_MS = 5 * 60 * 1000;
 
 // "..happy" -- the owner types it, and their own message is edited in
 // place through a run of frames so it plays as an animation. Deliberately
@@ -189,6 +206,15 @@ const HELP_SECTIONS = [
   {
     title: 'AI',
     entries: [
+      {
+        key: 'agent',
+        name: 'Agent',
+        lines: [
+          '!ag <what you want done> -- works out the steps and asks before',
+          'anything reaches someone else. e.g. !ag tell mum I\'m running late',
+          '!ag yes / !ag no -- confirm or cancel a plan',
+        ],
+      },
       {
         key: 'ai_ask',
         name: 'AI Ask',
@@ -557,6 +583,27 @@ function deriveStatusConfig(plugins) {
 function deriveAnimateConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'emoji_animate');
   return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveAgentConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'agent');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+// Folds the ways the same person's name gets written down to one
+// comparable form: case, accents ("Renée" vs "Renee"), and punctuation or
+// emoji people put in saved contact names ("Mum ❤️", "Dad (work)") all
+// stop mattering, so "mum" resolves against any of them.
+function normalizeContactName(value) {
+  return (value || '')
+    .normalize('NFKD')
+    // Strips the combining marks NFKD just split off. Written as escapes
+    // rather than literal combining characters, which are invisible in
+    // source and easy to mangle.
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 // The Fun pack's own plugin key -- games.py (8ball/rps/trivia) already
@@ -1621,6 +1668,208 @@ export async function startSession(userId, phoneNumber) {
     await sock.sendMessage(msg.key.remoteJid, { text: '🛑 Timer cancelled.' }, { quoted: msg });
   }
 
+  // Plans waiting on the owner's confirmation, keyed by the chat they were
+  // asked for in, so confirming in one conversation can't fire off a plan
+  // built in another. In-memory and short-lived by design (see
+  // AGENT_PLAN_TTL_MS): an unconfirmed plan is not something that should
+  // survive a reconnect and surprise someone later.
+  const pendingAgentPlans = new Map();
+
+  function takePendingAgentPlan(chatJid) {
+    const pending = pendingAgentPlans.get(chatJid);
+    pendingAgentPlans.delete(chatJid);
+    if (!pending) return null;
+    if (Date.now() - pending.createdAt > AGENT_PLAN_TTL_MS) return null;
+    return pending;
+  }
+
+  // Validates and resolves one planned step against the real action
+  // registry and the real contact book. Returns { prepared } or
+  // { problem } -- never a partially-understood step.
+  function prepareAgentStep(step) {
+    const def = AGENT_ACTIONS[step.action];
+    if (!def) return { problem: `I can't do "${step.action}".` };
+
+    const invalid = def.validate(step);
+    if (invalid) return { problem: `${step.action}: ${invalid}` };
+
+    if (step.delay !== undefined) {
+      const delayMs = parseAgentDelay(step.delay, parseTimerArgs);
+      if (delayMs === null) return { problem: `I couldn't read the time "${step.delay}".` };
+      step.resolvedDelayMs = delayMs;
+    }
+
+    let label = null;
+    if (def.contactParam) {
+      const wanted = step[def.contactParam];
+      if (typeof wanted !== 'string' || !wanted.trim()) {
+        return { problem: `${step.action}: no contact given` };
+      }
+      const found = resolveAgentContact(wanted);
+      if (found.status === 'none') {
+        return { problem: `I couldn't find a contact called "${wanted}".` };
+      }
+      if (found.status === 'ambiguous') {
+        const names = found.candidates.map((c) => c.label).filter(Boolean).join(', ');
+        return { problem: `"${wanted}" could be ${names} -- say which one.` };
+      }
+      step.resolvedJid = found.jid;
+      label = found.label;
+    }
+
+    return { prepared: { step, def, label } };
+  }
+
+  function renderAgentPlan(prepared) {
+    const lines = [];
+    for (const { step, def, label } of prepared) {
+      if (def.contactParam) {
+        lines.push(`locate contact "${step[def.contactParam]}" → ${label}`);
+      }
+      lines.push(...def.describe(step, label));
+    }
+    return lines;
+  }
+
+  async function runAgentPlan(userId, sock, chatJid, prepared) {
+    const failures = [];
+    let done = 0;
+    for (const { step, def } of prepared) {
+      try {
+        await def.execute(step, { sock, userId, chatJid, markAiSent });
+        done += 1;
+      } catch (err) {
+        console.error(`[${userId}] !ag step "${step.action}" failed:`, describeFetchError(err));
+        failures.push(`${step.action}${step.resolvedJid ? ` → ${step.resolvedJid.split('@')[0]}` : ''}`);
+      }
+    }
+
+    // Reported honestly rather than as a blanket "done": a plan that got
+    // three messages out and failed the fourth is exactly the case where
+    // the owner needs to know which one to redo.
+    const summary =
+      failures.length === 0
+        ? `✅ Done (${done} ${done === 1 ? 'step' : 'steps'}).`
+        : `⚠️ Ran ${done}, failed ${failures.length}: ${failures.join(', ')}`;
+    const sent = await sock.sendMessage(chatJid, { text: summary });
+    markAiSent(sent?.key?.id);
+  }
+
+  // "!ag <instruction>" -- owner-only. Plans, then either runs straight
+  // away or asks first, depending on whether anything in the plan reaches
+  // another person (see reachesOthers in agentActions.js). The
+  // confirmation exists because the plan is produced by an LLM from
+  // free-form text: the failure worth guarding against isn't a crash,
+  // it's confidently messaging the wrong person.
+  async function handleAgentCommand(userId, sock, msg, rawInstruction) {
+    const chatJid = msg.key.remoteJid;
+    const instruction = (rawInstruction || '').trim();
+
+    if (AGENT_CONFIRM_RE.test(instruction)) {
+      const pending = takePendingAgentPlan(chatJid);
+      if (!pending) {
+        await sock.sendMessage(chatJid, { text: 'Nothing waiting to confirm.' }, { quoted: msg });
+        return;
+      }
+      await runAgentPlan(userId, sock, chatJid, pending.prepared);
+      return;
+    }
+
+    if (AGENT_CANCEL_RE.test(instruction)) {
+      const had = pendingAgentPlans.delete(chatJid);
+      await sock.sendMessage(
+        chatJid,
+        { text: had ? '🚫 Cancelled.' : 'Nothing waiting to cancel.' },
+        { quoted: msg },
+      );
+      return;
+    }
+
+    if (!instruction) {
+      await sock.sendMessage(
+        chatJid,
+        {
+          text:
+            'Usage: !ag <what you want done>\n\n' +
+            'e.g. "!ag tell mum and dad I won\'t be home soon"\n' +
+            '     "!ag remind me in 2h to call the bank"\n' +
+            '     "!ag ask roger if he\'s free saturday"',
+        },
+        { quoted: msg },
+      );
+      return;
+    }
+
+    let result;
+    try {
+      result = await planAgentActions({
+        userId,
+        instruction,
+        actions: buildAgentCatalog(),
+      });
+    } catch (err) {
+      console.error(`[${userId}] !ag planning failed:`, describeFetchError(err));
+      await sock.sendMessage(chatJid, { text: "Couldn't work that out right now -- try again?" }, { quoted: msg });
+      return;
+    }
+
+    if (result.error === 'not_ready') {
+      await sock.sendMessage(chatJid, { text: "The agent isn't ready yet -- try again later." }, { quoted: msg });
+      return;
+    }
+    if (result.steps.length === 0) {
+      await sock.sendMessage(
+        chatJid,
+        { text: result.note || "I couldn't turn that into anything I can do." },
+        { quoted: msg },
+      );
+      return;
+    }
+
+    const prepared = [];
+    const problems = [];
+    for (const step of result.steps) {
+      const outcome = prepareAgentStep(step);
+      if (outcome.problem) problems.push(outcome.problem);
+      else prepared.push(outcome.prepared);
+    }
+
+    // All-or-nothing on purpose. Running the steps that happened to
+    // resolve while silently dropping one would mean "tell mum, dad and
+    // roger" quietly reaching two of the three -- the owner believing all
+    // three were told is worse than nothing being sent.
+    if (problems.length > 0) {
+      await sock.sendMessage(
+        chatJid,
+        { text: `🤖 I didn't run anything:\n\n${problems.map((p) => `• ${p}`).join('\n')}` },
+        { quoted: msg },
+      );
+      return;
+    }
+
+    const planLines = renderAgentPlan(prepared);
+    const touchesOthers = prepared.some(({ def }) => def.reachesOthers);
+
+    if (!touchesOthers) {
+      // Nothing here leaves the owner's own chat, so there's nothing to
+      // confirm -- asking would just be a pointless extra round trip.
+      await runAgentPlan(userId, sock, chatJid, prepared);
+      return;
+    }
+
+    pendingAgentPlans.set(chatJid, { prepared, createdAt: Date.now() });
+    const noteLine = result.note ? `\n${result.note}\n` : '';
+    await sock.sendMessage(
+      chatJid,
+      {
+        text:
+          `🤖 Plan${noteLine}\n${planLines.join('\n')}\n\n` +
+          'Reply "!ag yes" to run it, "!ag no" to cancel.',
+      },
+      { quoted: msg },
+    );
+  }
+
   // "!status" -- owner-only readout of this session's own state: which
   // gateway/plugin-engine pair it's running against, how long the socket
   // has been up, and how many plugins are currently enabled.
@@ -1828,12 +2077,91 @@ export async function startSession(userId, phoneNumber) {
     }
   }
 
+  // Name -> JID directory, the thing "!ag tell mum ..." resolves against.
+  // Built from the same contacts events that feed the LID mapping above,
+  // since they already carry every name WhatsApp knows for a contact:
+  // `name` (what the owner saved them as in their own address book -- the
+  // one that makes "mum" work), `notify` (the pushname the contact set
+  // themselves), and `verifiedName` (business accounts).
+  //
+  // Bounded for the same reason lidToPhoneJid is: an unbounded per-session
+  // map that only ever grows caused a real OOM crash loop on the 512MB
+  // tier. Dropping an entry only costs one name lookup until the next
+  // contacts sync repopulates it.
+  const MAX_CONTACT_DIRECTORY_SIZE = 5000;
+  const contactDirectory = new Map(); // jid -> { name, notify, verifiedName }
+
   function recordContacts(contacts) {
     for (const c of contacts) {
       if (c.lid && c.jid) {
         rememberLidMapping(jidNormalizedUser(c.lid), jidNormalizedUser(c.jid));
       }
+
+      // Prefer a real phone JID: that's what sendMessage wants, and what
+      // a @lid would have to be resolved back to anyway.
+      const jid = c.jid || c.phoneNumber || c.id;
+      if (!jid || jid.endsWith('@g.us')) continue; // groups aren't "contacts" here
+      if (!c.name && !c.notify && !c.verifiedName) continue; // nothing to match on
+
+      const normalizedJid = jidNormalizedUser(jid);
+      const existing = contactDirectory.get(normalizedJid) || {};
+      // Merge rather than overwrite: contacts.update fires with partial
+      // records, so a later event carrying only `notify` would otherwise
+      // wipe the `name` an earlier one established -- and `name` is the
+      // field that makes "mum" resolvable at all.
+      contactDirectory.set(normalizedJid, {
+        name: c.name || existing.name,
+        notify: c.notify || existing.notify,
+        verifiedName: c.verifiedName || existing.verifiedName,
+      });
+      while (contactDirectory.size > MAX_CONTACT_DIRECTORY_SIZE) {
+        contactDirectory.delete(contactDirectory.keys().next().value);
+      }
     }
+  }
+
+  // Resolves a name the owner used ("mum") to exactly one real contact.
+  // Returns { status: 'ok', jid, label } | { status: 'none' } |
+  // { status: 'ambiguous', candidates }.
+  //
+  // Deliberately strict about ambiguity: this decides who receives a
+  // message, so "probably meant this one" is not good enough. Matching
+  // runs in tiers and only ever considers the *best* tier that produced
+  // anything -- so an exact "Mum" wins outright even though "Mum's
+  // Neighbour" also contains it, but two equally-good matches stop the
+  // whole plan rather than picking one.
+  function resolveAgentContact(query) {
+    const wanted = normalizeContactName(query);
+    if (!wanted) return { status: 'none' };
+
+    // A raw phone number the owner typed is unambiguous by definition --
+    // no directory lookup needed, and it works for someone not in their
+    // contacts at all.
+    const digits = (query || '').replace(/[^\d]/g, '');
+    if (/^\+?[\d\s-]+$/.test((query || '').trim()) && digits.length >= 7) {
+      return { status: 'ok', jid: `${digits}@s.whatsapp.net`, label: `+${digits}` };
+    }
+
+    const exact = [];
+    const prefix = [];
+    const substring = [];
+    for (const [jid, names] of contactDirectory) {
+      const label = names.name || names.notify || names.verifiedName;
+      for (const candidate of [names.name, names.notify, names.verifiedName]) {
+        const normalized = normalizeContactName(candidate);
+        if (!normalized) continue;
+        if (normalized === wanted) { exact.push({ jid, label }); break; }
+        // Word-boundary-ish: "mum" matches "mum smith", not "mumbai".
+        if (normalized.startsWith(`${wanted} `)) { prefix.push({ jid, label }); break; }
+        if (normalized.includes(wanted)) { substring.push({ jid, label }); break; }
+      }
+    }
+
+    const tier = exact.length ? exact : prefix.length ? prefix : substring;
+    const unique = [...new Map(tier.map((c) => [c.jid, c])).values()];
+    if (unique.length === 0) return { status: 'none' };
+    if (unique.length > 1) return { status: 'ambiguous', candidates: unique.slice(0, 5) };
+    return { status: 'ok', jid: unique[0].jid, label: unique[0].label || unique[0].jid.split('@')[0] };
   }
 
   function resolveRemoteJid(remoteJid) {
@@ -2232,6 +2560,18 @@ export async function startSession(userId, phoneNumber) {
         if (HELP_COMMAND.test(text)) {
           await handleHelpCommand(userId, sock, msg, await refreshPluginConfigs());
           continue;
+        }
+
+        // "!ag <instruction>" -- owner-only, and checked before the
+        // plugin-command forwarding below so the agent's own confirmation
+        // replies ("!ag yes") never get treated as a fresh instruction.
+        const agentMatch = text.match(AGENT_COMMAND);
+        if (agentMatch) {
+          const agentConfig = deriveAgentConfig(await refreshPluginConfigs());
+          if (agentConfig.enabled) {
+            await handleAgentCommand(userId, sock, msg, agentMatch[1]);
+            continue;
+          }
         }
 
         // "..happy" and friends -- animates this message in place. Sits

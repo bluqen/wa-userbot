@@ -60,6 +60,30 @@ export async function forwardMessage({ userId, from, text, audio, sticker, fromM
 // Backs the owner-only "!ai" command -- a one-shot question, not the
 // ongoing AI Reply conversation flow. Returns null if no AI provider is
 // configured or the request otherwise failed to produce an answer.
+// Turns a plain-language "!ag ..." instruction into a plan of actions.
+// `actions` is this gateway's own capability catalog (see
+// buildAgentCatalog) -- the planner is told what it may emit rather than
+// carrying its own copy, so the two can't drift apart.
+//
+// Note what is NOT sent: the owner's contact list never leaves the
+// gateway. The planner only ever echoes back names the user themselves
+// typed, and resolving those to real people happens here.
+export async function planAgentActions({ userId, instruction, actions }) {
+  const res = await fetch(`${PLUGIN_ENGINE_URL}/agent/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, instruction, actions }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`plugin engine responded ${res.status}`);
+  }
+
+  const data = await res.json();
+  return { steps: data.steps || [], note: data.note || '', error: data.error || null };
+}
+
 export async function askAI({ userId, question }) {
   const res = await fetch(`${PLUGIN_ENGINE_URL}/ask`, {
     method: 'POST',

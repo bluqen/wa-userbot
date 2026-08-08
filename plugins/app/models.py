@@ -70,3 +70,35 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: Optional[str] = None
+
+
+class AgentAction(BaseModel):
+    """One capability the gateway is offering the planner. Supplied per
+    request rather than defined here, so the planner's menu is always
+    exactly what the gateway can execute (see buildAgentCatalog in
+    gateway/src/agentActions.js).
+    """
+
+    name: str
+    summary: str = ""
+    params: str = ""
+
+
+class AgentPlanRequest(BaseModel):
+    user_id: str
+    instruction: str
+    actions: List[AgentAction] = []
+
+
+class AgentPlanResponse(BaseModel):
+    # Steps are deliberately untyped dicts: the set of actions (and so the
+    # fields each one carries) is owned by the gateway's registry, not by
+    # this service. agent.py sanitizes them to flat, size-bounded strings
+    # and string lists; the gateway then validates each step against the
+    # real action definition before anything runs. Any name in here is
+    # only ever a name the *user* wrote -- never a phone number or JID.
+    steps: List[dict] = []
+    note: str = ""
+    # Set when no plan could be produced for a reason worth telling the
+    # owner about specifically (currently only "no LLM provider").
+    error: Optional[str] = None

@@ -26,8 +26,13 @@ const handlers = {
   // setTimeout so it survives the routine socket reconnects that would
   // otherwise wipe it.
   timer_done: async ({ payload }, entry) => {
-    const label = payload.duration ? ` (${payload.duration} timer)` : '';
-    await entry.sock.sendMessage(payload.jid, { text: `⏰ Time's up!${label}` });
+    // A custom message ("!timer 2h take the bread out") wins outright --
+    // it's what the user actually wanted said. Otherwise fall back to the
+    // generic ping, tagged with how long the timer ran for.
+    const text = payload.label
+      ? `⏰ ${payload.label}`
+      : `⏰ Time's up!${payload.duration ? ` (${payload.duration} timer)` : ''}`;
+    await entry.sock.sendMessage(payload.jid, { text });
     return true;
   },
 };

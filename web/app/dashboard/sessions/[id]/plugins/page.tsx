@@ -38,6 +38,7 @@ import TranslateSettings, {
   type TranslateSettingsValue,
 } from '@/components/plugins/TranslateSettings';
 import TimerSettings, { type TimerSettingsValue } from '@/components/plugins/TimerSettings';
+import AnimateSettings from '@/components/plugins/AnimateSettings';
 
 type PluginConfig = {
   key: string;
@@ -206,6 +207,7 @@ export default function SessionPluginsPage({ params }: { params: { id: string } 
                   onSave={(settings) => handleSaveSettings(plugin.key, settings)}
                 />
               )}
+              {plugin.key === 'emoji_animate' && <AnimateSettings />}
             </PluginCard>
           ))
         )}

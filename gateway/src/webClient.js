@@ -51,6 +51,21 @@ export async function createScheduledTask({ sessionId, type, payload, runAt }) {
   return res.json();
 }
 
+// Cancels a pending long "!timer" by the id of the confirmation message
+// the user replied "!stop" to (see whatsappManager.js's handleStopCommand).
+// Resolves true if a matching pending timer was found and cancelled.
+export async function cancelTimerTask({ sessionId, messageId }) {
+  const res = await fetch(`${WEB_APP_URL}/api/internal/scheduled-tasks/cancel-timer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL_API_SECRET },
+    body: JSON.stringify({ sessionId, messageId }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`web app responded ${res.status}`);
+  const data = await res.json();
+  return !!data.cancelled;
+}
+
 // Every not-yet-completed task whose runAt has passed, for sessions
 // assigned to this gateway instance.
 export async function fetchDueTasks(gatewayUrl) {

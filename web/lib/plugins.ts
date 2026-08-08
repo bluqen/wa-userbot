@@ -21,7 +21,8 @@ export type PluginKey =
   | 'qr'
   | 'translate'
   | 'timer'
-  | 'session_status';
+  | 'session_status'
+  | 'emoji_animate';
 
 export const PLUGIN_KEYS: PluginKey[] = [
   'autoreply',
@@ -47,6 +48,7 @@ export const PLUGIN_KEYS: PluginKey[] = [
   'translate',
   'timer',
   'session_status',
+  'emoji_animate',
 ];
 
 export const PLUGIN_META: Record<PluginKey, { name: string; description: string; icon: string }> = {
@@ -160,6 +162,11 @@ export const PLUGIN_META: Record<PluginKey, { name: string; description: string;
     description: 'A live countdown with "!timer 5m" -- or "!timer 1h30m".',
     icon: '⏳',
   },
+  emoji_animate: {
+    name: 'Animations',
+    description: 'Type "..happy" and watch your own message animate.',
+    icon: '✨',
+  },
   session_status: {
     name: 'Session Info',
     description: 'Check this session\'s connection and plugin count with "!status" -- admins can also run "!status all" for every shard.',
@@ -248,6 +255,7 @@ export const PLUGIN_DEFAULTS: Record<PluginKey, Record<string, unknown>> = {
     replyInGroups: false,
   },
   session_status: {},
+  emoji_animate: {},
 };
 
 export function isPluginKey(key: string): key is PluginKey {
@@ -283,6 +291,7 @@ const DEFAULT_ENABLED_PLUGINS: ReadonlySet<PluginKey> = new Set([
   'translate',
   'timer',
   'session_status',
+  'emoji_animate',
 ]);
 
 export function isDefaultEnabled(key: PluginKey): boolean {

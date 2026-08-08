@@ -18,6 +18,7 @@ import {
 import { forwardMessage, forwardOwnMessage, fetchExceptionNumbers, askAI } from './pluginClient.js';
 import {
   createScheduledTask,
+  cancelTimerTask,
   saveSticker,
   fetchSticker,
   fetchSessionPluginConfigs,
@@ -68,6 +69,115 @@ const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
 const STATUS_COMMAND = /^!status(?:\s+(all))?$/i;
 const HELP_COMMAND = /^!help$/i;
+// Reply to a running timer's own message with "!stop" to cancel it.
+const STOP_COMMAND = /^!stop$/i;
+
+// "..happy" -- the owner types it, and their own message is edited in
+// place through a run of frames so it plays as an animation. Deliberately
+// NOT the "!" prefix every other command uses: this isn't a command that
+// produces a reply, it's a shorthand that turns the message you just sent
+// into something else, so it reads better as its own thing. Strict on
+// purpose (letters only, 2-14 of them, nothing after) so ordinary
+// messages that happen to start with a dot can never trigger it.
+const ANIMATE_COMMAND = /^\.\.([a-z]{2,14})$/i;
+
+// Each entry is the frames to step through, optionally repeated (`loops`)
+// and optionally settling on a different `final` frame that stays as the
+// message's permanent content once the animation finishes.
+const EMOJI_ANIMATIONS = {
+  happy: {
+    frames: ['( -_- )', '( •_• )', '( ^_^ )', '( ^o^ )', '\\( ^o^ )/', '\\( ^o^ )/ ✨'],
+    final: '😄 ✨🎉',
+  },
+  love: { frames: ['🤍', '💗', '💖', '💞', '💖', '💗'], loops: 2, final: '❤️ ✨' },
+  fire: {
+    frames: ['·', '.', '🔥', '🔥🔥', '🔥🔥🔥', '🔥🔥🔥🔥', '🔥🔥🔥🔥🔥'],
+    final: '🔥 LIT 🔥',
+  },
+  party: { frames: ['🎉', '🎉🎊', '🎉🎊✨', '🥳 🎉🎊✨'], loops: 2, final: '🎊✨🎉 🥳 🎉✨🎊' },
+  boom: {
+    frames: ['·', '˙', '✦', '✧', '💥', '💥💥', '🔥💥🔥', '💨 💥 💨'],
+    final: '💥 BOOM 💥',
+  },
+  cool: {
+    frames: ['( •_• )', '( •_• )>', '( •_•)>⌐■-■', '(⌐■_■)'],
+    final: '(⌐■_■) deal with it 😎',
+  },
+  sad: { frames: ['( •_• )', '( ._. )', '( ;_; )', '( ╥﹏╥ )', '😢'], final: '😭' },
+  think: { frames: ['( •_• ) ?', '( ·_· ) ??', '( ¬_¬ ) ???', '🤔 💭'], final: '💡 !' },
+  wave: {
+    frames: [
+      '👋 · · · ·',
+      '· 👋 · · ·',
+      '· · 👋 · ·',
+      '· · · 👋 ·',
+      '· · · · 👋',
+      '· · · 👋 ·',
+      '· · 👋 · ·',
+      '· 👋 · · ·',
+    ],
+    final: '👋 hey!',
+  },
+  loading: {
+    frames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+    loops: 3,
+    final: '✅ done',
+  },
+};
+
+const ANIMATION_NAMES = Object.keys(EMOJI_ANIMATIONS).sort();
+// Every frame is one message edit, i.e. one round trip -- this caps how
+// many any single animation can ever spend, however it's configured.
+const MAX_ANIMATION_FRAMES = 40;
+// A floor, not a fixed delay (see handleEmojiAnimation): frames are paced
+// by how fast WhatsApp actually accepts each edit, and this only kicks in
+// when a round trip comes back faster than this.
+const MIN_ANIMATION_FRAME_MS = 60;
+
+function buildAnimationFrames(animation) {
+  const frames = [];
+  for (let loop = 0; loop < (animation.loops || 1); loop += 1) frames.push(...animation.frames);
+  if (animation.final) frames.push(animation.final);
+  return frames.slice(0, MAX_ANIMATION_FRAMES);
+}
+
+// Plays an animation by editing the owner's own message repeatedly.
+// Owner-only by necessity, not just by policy: WhatsApp only allows a
+// message to be edited by the account that sent it, so this can only ever
+// work on the owner's own outgoing messages (same constraint AI Write
+// runs under).
+//
+// Speed: frames are sent sequentially and awaited rather than fired off in
+// parallel. That's deliberate -- unawaited edits can land out of order,
+// which shows up as a visibly scrambled animation that settles on the
+// wrong frame. Since each edit is a real round trip, awaiting it *is* the
+// pacing; the only added delay is a floor applied when a round trip
+// returns faster than MIN_ANIMATION_FRAME_MS, so on a slow connection the
+// animation runs flat out with no artificial delay stacked on top.
+async function handleEmojiAnimation(userId, sock, msg, name) {
+  const animation = EMOJI_ANIMATIONS[name.toLowerCase()];
+  if (!animation) {
+    await sock
+      .sendMessage(msg.key.remoteJid, { text: `Animations: ${ANIMATION_NAMES.join(', ')}`, edit: msg.key })
+      .catch((err) => console.error(`[${userId}] ..${name} list failed:`, err.message));
+    return;
+  }
+
+  const frames = buildAnimationFrames(animation);
+  for (const frame of frames) {
+    const startedAt = Date.now();
+    try {
+      await sock.sendMessage(msg.key.remoteJid, { text: frame, edit: msg.key });
+    } catch (err) {
+      // Half a played animation is a fine place to stop -- the message is
+      // left on whatever frame it reached rather than being retried.
+      console.error(`[${userId}] ..${name} frame failed:`, err.message);
+      return;
+    }
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < MIN_ANIMATION_FRAME_MS) await wait(MIN_ANIMATION_FRAME_MS - elapsed);
+  }
+}
 
 // Grouped by category for "!help" (owner-only -- see the dispatch site).
 // Every entry is always listed, on or off, each prefixed with 🟢/🔴 so the
@@ -89,6 +199,11 @@ const HELP_SECTIONS = [
   {
     title: 'FUN',
     entries: [
+      {
+        key: 'emoji_animate',
+        name: 'Animations',
+        lines: [`..${ANIMATION_NAMES.slice(0, 4).join(' / ..')} -- animates your own message in place`, `all: ..${ANIMATION_NAMES.join(', ..')}`],
+      },
       {
         key: 'games',
         name: 'Fun',
@@ -127,7 +242,11 @@ const HELP_SECTIONS = [
       {
         key: 'timer',
         name: 'Timers',
-        lines: ['!timer <duration>, e.g. !timer 5m or !timer 1h30m', 'under 14m counts down live; longer ones ping you when up'],
+        lines: [
+          '!timer <duration> [message], e.g. !timer 10m tea is ready',
+          'under 14m counts down live; longer ones ping you when up',
+          'reply !stop to a timer to cancel it',
+        ],
       },
       {
         key: 'session_status',
@@ -178,13 +297,24 @@ async function handleHelpCommand(userId, sock, msg, plugins) {
   }
 }
 
-// "!timer 5m", "!timer 90s", "!timer 1h30m", or a bare number of minutes
-// ("!timer 5"). Multiple units combine (h/m/s in any order), matching how
-// people actually type durations rather than requiring one strict format.
-function parseTimerDuration(input) {
+const MAX_TIMER_LABEL_LENGTH = 200;
+
+// "!timer 5m", "!timer 90s", "!timer 1h30m", a bare number of minutes
+// ("!timer 5"), and optionally a message to fire when it's up
+// ("!timer 10m time's upppp"). Multiple units combine (h/m/s in any
+// order), matching how people actually type durations rather than
+// requiring one strict format. Returns { durationMs, label }.
+function parseTimerArgs(input) {
   const cleaned = (input || '').trim();
   if (!cleaned) return null;
 
+  // Anchored at the start and consumed token by token, rather than the
+  // old global scan over the whole string: now that a trailing label is
+  // allowed, a free-text label containing a number ("!timer 5m call mum
+  // at 6") would otherwise have its digits silently absorbed into the
+  // duration. Only a leading run of duration tokens counts; whatever is
+  // left over is the label, verbatim.
+  //
   // Alternatives listed longest-first within each unit, since regex
   // alternation takes the first one that matches rather than the longest
   // -- "min" before "m" would otherwise never get a chance to match, and
@@ -197,22 +327,30 @@ function parseTimerDuration(input) {
   // lookahead only rejects being followed by another *letter* (so a
   // stray match inside an unrelated word like "milk" still can't
   // happen), which is the only thing that actually needed rejecting.
-  const unitRe = /(\d+)\s*(hours|hour|hrs|hr|h|minutes|minute|mins|min|m|seconds|second|secs|sec|s)(?![a-z])/gi;
+  const unitRe = /^\s*(\d+)\s*(hours|hour|hrs|hr|h|minutes|minute|mins|min|m|seconds|second|secs|sec|s)(?![a-z])/i;
+  let rest = cleaned;
   let totalMs = 0;
   let matchedAny = false;
   let m;
-  while ((m = unitRe.exec(cleaned))) {
+  while ((m = rest.match(unitRe))) {
     matchedAny = true;
     const value = Number(m[1]);
     const unit = m[2][0].toLowerCase();
     if (unit === 'h') totalMs += value * 3600000;
     else if (unit === 'm') totalMs += value * 60000;
     else totalMs += value * 1000;
+    rest = rest.slice(m[0].length);
   }
-  if (matchedAny) return totalMs;
 
-  if (/^\d+$/.test(cleaned)) return Number(cleaned) * 60000; // bare number = minutes
-  return null;
+  if (!matchedAny) {
+    // Bare leading number = minutes ("!timer 5", "!timer 5 stretch").
+    const bare = rest.match(/^\s*(\d+)(?![\w])/);
+    if (!bare) return null;
+    totalMs = Number(bare[1]) * 60000;
+    rest = rest.slice(bare[0].length);
+  }
+
+  return { durationMs: totalMs, label: rest.trim().slice(0, MAX_TIMER_LABEL_LENGTH) };
 }
 
 function formatTimerRemaining(ms) {
@@ -413,6 +551,11 @@ function deriveMediaConvertConfig(plugins) {
 
 function deriveStatusConfig(plugins) {
   const entry = plugins.find((p) => p.key === 'session_status');
+  return { enabled: !!(entry && entry.enabled) };
+}
+
+function deriveAnimateConfig(plugins) {
+  const entry = plugins.find((p) => p.key === 'emoji_animate');
   return { enabled: !!(entry && entry.enabled) };
 }
 
@@ -1273,23 +1416,31 @@ export async function startSession(userId, phoneNumber) {
   // TIMER_EDIT_WINDOW_MS by construction, so the most a reconnect can
   // cost is a few minutes of countdown. Anything longer never lands here;
   // it goes through scheduleLongTimer's persisted task instead.
-  const activeTimers = new Map(); // message id of the timer message -> interval handle
+  // message id of the timer's own message -> { handle, key }. The key is
+  // kept so "!stop" (which arrives as a reply quoting that message) can
+  // edit the countdown in place to say it was stopped.
+  const activeTimers = new Map();
 
   function clearAllTimers() {
-    for (const handle of activeTimers.values()) clearInterval(handle);
+    for (const timer of activeTimers.values()) clearInterval(timer.handle);
     activeTimers.clear();
   }
 
   async function handleTimerCommand(userId, sock, msg, rawArgs) {
-    const durationMs = parseTimerDuration(rawArgs);
-    if (durationMs === null) {
+    const parsed = parseTimerArgs(rawArgs);
+    if (parsed === null) {
       await sock.sendMessage(
         msg.key.remoteJid,
-        { text: 'Usage: !timer <duration>, e.g. "!timer 5m", "!timer 90s", or "!timer 1h30m".' },
+        {
+          text:
+            'Usage: !timer <duration> [message], e.g. "!timer 5m", "!timer 90s", ' +
+            '"!timer 1h30m", or "!timer 10m tea is ready".',
+        },
         { quoted: msg },
       );
       return;
     }
+    const { durationMs, label } = parsed;
     if (durationMs < MIN_TIMER_DURATION_MS) {
       await sock.sendMessage(msg.key.remoteJid, { text: 'Shortest timer is 10 seconds.' }, { quoted: msg });
       return;
@@ -1302,7 +1453,7 @@ export async function startSession(userId, phoneNumber) {
     // don't pretend to: confirm now, and let the persisted scheduler
     // deliver a fresh message when it's actually up.
     if (durationMs > TIMER_EDIT_WINDOW_MS) {
-      await scheduleLongTimer(userId, sock, msg, durationMs);
+      await scheduleLongTimer(userId, sock, msg, durationMs, label);
       return;
     }
 
@@ -1318,8 +1469,9 @@ export async function startSession(userId, phoneNumber) {
     const tickMs = durationMs <= LIVE_TIMER_MAX_MS ? LIVE_TIMER_INTERVAL_MS : SPARSE_TIMER_INTERVAL_MS;
     const endsAt = Date.now() + durationMs;
 
+    const labelLine = label ? `${label}\n` : '';
     const renderTimer = (remainingMs) =>
-      `${formatTimerEmoji(remainingMs)}\n${buildTimerProgressBar(remainingMs / durationMs)}`;
+      `${labelLine}${formatTimerEmoji(remainingMs)}\n${buildTimerProgressBar(remainingMs / durationMs)}`;
 
     let sent;
     try {
@@ -1332,7 +1484,8 @@ export async function startSession(userId, phoneNumber) {
     if (!timerId) return; // nothing to edit going forward -- not worth starting a loop for
 
     function stopTimer() {
-      clearInterval(activeTimers.get(timerId));
+      const timer = activeTimers.get(timerId);
+      if (timer) clearInterval(timer.handle);
       activeTimers.delete(timerId);
     }
 
@@ -1353,7 +1506,8 @@ export async function startSession(userId, phoneNumber) {
         const remaining = endsAt - Date.now();
         if (remaining <= 0) {
           stopTimer();
-          await sock.sendMessage(msg.key.remoteJid, { text: `${formatTimerEmoji(0)}\n⏰ Time's up!`, edit: sent.key });
+          const done = label ? `⏰ ${label}` : "⏰ Time's up!";
+          await sock.sendMessage(msg.key.remoteJid, { text: `${formatTimerEmoji(0)}\n${done}`, edit: sent.key });
           return;
         }
         await sock.sendMessage(msg.key.remoteJid, { text: renderTimer(remaining), edit: sent.key });
@@ -1369,7 +1523,7 @@ export async function startSession(userId, phoneNumber) {
         ticking = false;
       }
     }, tickMs);
-    activeTimers.set(timerId, handle);
+    activeTimers.set(timerId, { handle, key: sent.key });
   }
 
   // Anything past WhatsApp's edit window. Persisted as a ScheduledTask
@@ -1377,33 +1531,94 @@ export async function startSession(userId, phoneNumber) {
   // setTimeout, because this session's socket reconnects routinely and
   // clearAllTimers() on 'close' would silently eat every pending long
   // timer each time it did.
-  async function scheduleLongTimer(userId, sock, msg, durationMs) {
+  async function scheduleLongTimer(userId, sock, msg, durationMs, label) {
     const spelled = formatTimerWords(durationMs);
+    const labelLine = label ? `\n_When it's up: ${label}_` : '';
+
+    // Confirmation is sent *before* the task is created so its message id
+    // can go into the payload -- that's what lets "!stop" (a reply
+    // quoting this message) find and cancel the right pending task later.
+    // If task creation then fails, the confirmation is edited into an
+    // error rather than leaving a message promising a timer that isn't
+    // actually scheduled.
+    let sent;
+    try {
+      sent = await sock.sendMessage(
+        msg.key.remoteJid,
+        {
+          text:
+            `⏳ Timer set for ${spelled} -- I'll message you here when it's up.${labelLine}\n\n` +
+            "_No live countdown on this one: WhatsApp only lets a message be edited for 15 minutes after it's sent. Reply !stop to cancel._",
+        },
+        { quoted: msg },
+      );
+    } catch (err) {
+      console.error(`[${userId}] !timer failed to confirm:`, err.message);
+      return;
+    }
+
     try {
       await createScheduledTask({
         sessionId: userId,
         type: 'timer_done',
-        payload: { jid: msg.key.remoteJid, duration: spelled },
+        payload: { jid: msg.key.remoteJid, duration: spelled, label, messageId: sent?.key?.id || null },
         runAt: new Date(Date.now() + durationMs).toISOString(),
       });
     } catch (err) {
       console.error(`[${userId}] !timer failed to schedule:`, describeFetchError(err));
+      const failure = { text: "Couldn't set that timer right now -- try again?" };
+      if (sent?.key) failure.edit = sent.key;
+      await sock.sendMessage(msg.key.remoteJid, failure).catch(() => {});
+    }
+  }
+
+  // "!stop", sent as a reply quoting a timer's own message. Handles both
+  // kinds: a live countdown (in activeTimers, stopped instantly) and a
+  // scheduled long timer (a pending ScheduledTask, cancelled via the web
+  // app by the confirmation message's id -- see cancelTimerTask).
+  async function handleStopCommand(userId, sock, msg) {
+    const quotedId = msg.message?.extendedTextMessage?.contextInfo?.stanzaId;
+    if (!quotedId) {
       await sock.sendMessage(
         msg.key.remoteJid,
-        { text: "Couldn't set that timer right now -- try again?" },
+        { text: 'Reply to a timer message with !stop to cancel it.' },
         { quoted: msg },
       );
       return;
     }
-    await sock.sendMessage(
-      msg.key.remoteJid,
-      {
-        text:
-          `⏳ Timer set for ${spelled} -- I'll message you here when it's up.\n\n` +
-          "_No live countdown on this one: WhatsApp only lets a message be edited for 15 minutes after it's sent._",
-      },
-      { quoted: msg },
-    );
+
+    const live = activeTimers.get(quotedId);
+    if (live) {
+      clearInterval(live.handle);
+      activeTimers.delete(quotedId);
+      await sock.sendMessage(msg.key.remoteJid, { text: '🛑 Timer stopped.', edit: live.key }).catch((err) =>
+        console.error(`[${userId}] !stop failed to edit the timer message:`, err.message),
+      );
+      return;
+    }
+
+    let cancelled = false;
+    try {
+      cancelled = await cancelTimerTask({ sessionId: userId, messageId: quotedId });
+    } catch (err) {
+      console.error(`[${userId}] !stop failed to cancel a scheduled timer:`, describeFetchError(err));
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: "Couldn't stop that timer right now -- try again?" },
+        { quoted: msg },
+      );
+      return;
+    }
+
+    if (!cancelled) {
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: "That timer isn't running any more." },
+        { quoted: msg },
+      );
+      return;
+    }
+    await sock.sendMessage(msg.key.remoteJid, { text: '🛑 Timer cancelled.' }, { quoted: msg });
   }
 
   // "!status" -- owner-only readout of this session's own state: which
@@ -1960,13 +2175,17 @@ export async function startSession(userId, phoneNumber) {
         }
       }
 
-      // "!timer" -- same shape again.
+      // "!timer" -- same shape again. "!stop" rides along with it: it only
+      // ever means "cancel the timer I'm replying to", so it's gated by
+      // the same toggle rather than getting one of its own.
       if (!aiSentMessageIds.has(msg.key.id)) {
         const timerMatch = text.match(TIMER_COMMAND);
-        if (timerMatch) {
+        const isStop = STOP_COMMAND.test(text);
+        if (timerMatch || isStop) {
           const timer = deriveTimerConfig(await refreshPluginConfigs());
           if (timer.enabled && (!isGroupChat || timer.replyInGroups)) {
-            await handleTimerCommand(userId, sock, msg, timerMatch[1]);
+            if (isStop) await handleStopCommand(userId, sock, msg);
+            else await handleTimerCommand(userId, sock, msg, timerMatch[1]);
             continue;
           }
         }
@@ -2013,6 +2232,18 @@ export async function startSession(userId, phoneNumber) {
         if (HELP_COMMAND.test(text)) {
           await handleHelpCommand(userId, sock, msg, await refreshPluginConfigs());
           continue;
+        }
+
+        // "..happy" and friends -- animates this message in place. Sits
+        // before ai_write below so a shorthand never gets treated as
+        // prose to rewrite.
+        const animateMatch = text.match(ANIMATE_COMMAND);
+        if (animateMatch) {
+          const animate = deriveAnimateConfig(await refreshPluginConfigs());
+          if (animate.enabled) {
+            await handleEmojiAnimation(userId, sock, msg, animateMatch[1]);
+            continue;
+          }
         }
 
         const saveNoteMatch = text.match(SAVE_NOTE_COMMAND);

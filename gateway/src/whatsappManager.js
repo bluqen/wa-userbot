@@ -124,7 +124,11 @@ const HELP_SECTIONS = [
         name: 'Translate',
         lines: ['!translate <language> <text>, or !tl es hello -- or reply to a message with !tl <language>'],
       },
-      { key: 'timer', name: 'Timers', lines: ['!timer <duration>, e.g. !timer 5m or !timer 1h30m'] },
+      {
+        key: 'timer',
+        name: 'Timers',
+        lines: ['!timer <duration>, e.g. !timer 5m or !timer 1h30m', 'under 14m counts down live; longer ones ping you when up'],
+      },
       {
         key: 'session_status',
         name: 'Session Info',
@@ -220,19 +224,63 @@ function formatTimerRemaining(ms) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
+// Keycap-emoji digits, so a running countdown reads as a clock face
+// ("[0️⃣0️⃣:0️⃣2️⃣:5️⃣9️⃣]") instead of plain text. Always padded to
+// HH:MM:SS -- fixed width means the message doesn't reflow every tick.
+const EMOJI_DIGITS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+
+function toEmojiDigits(value) {
+  return String(value)
+    .padStart(2, '0')
+    .split('')
+    .map((d) => EMOJI_DIGITS[Number(d)])
+    .join('');
+}
+
+function formatTimerEmoji(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `[${toEmojiDigits(h)}:${toEmojiDigits(m)}:${toEmojiDigits(s)}]`;
+}
+
+// "1h 30m" -- for the one-shot confirmation/ping of a long timer, where a
+// ticking clock face isn't what's being shown.
+function formatTimerWords(ms) {
+  const totalSeconds = Math.round(ms / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const parts = [];
+  if (h) parts.push(`${h}h`);
+  if (m) parts.push(`${m}m`);
+  if (s) parts.push(`${s}s`);
+  return parts.join(' ') || '0s';
+}
+
 function buildTimerProgressBar(fraction) {
   const totalSegments = 10;
   const filled = Math.max(0, Math.min(totalSegments, Math.round(fraction * totalSegments)));
   return '▓'.repeat(filled) + '░'.repeat(totalSegments - filled);
 }
 
-// <=10min gets a "live" countdown (frequent edits, progress bar); longer
-// timers fall back to sparse edits instead -- editing every few seconds
-// for, say, an 8-hour timer would be both pointless (nobody's watching a
-// countdown that long tick by) and enough repeated edits over that
-// duration to look like abuse to WhatsApp.
-const ANIMATED_TIMER_MAX_MS = 10 * 60 * 1000;
-const ANIMATED_TIMER_INTERVAL_MS = 5000;
+// WhatsApp only accepts an edit to a message for ~15 minutes after it was
+// sent. Past that the edit is rejected, so a countdown that keeps editing
+// its own message just silently freezes on whatever it last managed to
+// write -- which is exactly what the previous version of this did for
+// anything over 15 minutes. So: only durations that fit inside that
+// window count down in place; longer ones can't, and are handled as a
+// persisted "ping me when it's up" task instead (see handleTimerCommand).
+// 14, not 15, to leave headroom for the final tick.
+const TIMER_EDIT_WINDOW_MS = 14 * 60 * 1000;
+// A per-second countdown means one message edit per second -- fine for a
+// genuinely short timer, but it's sustained protocol traffic against a
+// single message, so only the shortest tier gets it. Anything above it
+// (but still inside the edit window) ticks every 5s as before.
+const LIVE_TIMER_MAX_MS = 5 * 60 * 1000;
+const LIVE_TIMER_INTERVAL_MS = 1000;
+const SPARSE_TIMER_INTERVAL_MS = 5000;
 const MIN_TIMER_DURATION_MS = 10 * 1000;
 const MAX_TIMER_DURATION_MS = 24 * 60 * 60 * 1000;
 // A concurrency cap, not just a duration cap: without one, a burst of
@@ -240,6 +288,8 @@ const MAX_TIMER_DURATION_MS = 24 * 60 * 60 * 1000;
 // exactly the class of unbounded per-session growth that has already
 // caused a real OOM crash loop in this codebase (see lidToPhoneJid).
 const MAX_CONCURRENT_TIMERS = 3;
+// Consecutive failed edits before a countdown gives up (see the tick loop).
+const MAX_TIMER_TICK_FAILURES = 3;
 const NOTE_RECALL_RE = /#([a-z0-9_-]{2,})/i;
 
 // Shared by anti-delete's eager media caching, "!savenote", and voice-note
@@ -1219,9 +1269,10 @@ export async function startSession(userId, phoneNumber) {
   // setIntervals, and cleared entirely on disconnect (see the 'close'
   // handler below): a stale interval still firing against a dead/replaced
   // socket is wasted work and noisy errors, not something worth surviving
-  // a reconnect for. In-memory only, not persisted -- losing a countdown
-  // mid-way on a redeploy is an acceptable tradeoff for something this
-  // short-lived (max 24h, typically minutes).
+  // a reconnect for. In-memory only, not persisted -- these are all under
+  // TIMER_EDIT_WINDOW_MS by construction, so the most a reconnect can
+  // cost is a few minutes of countdown. Anything longer never lands here;
+  // it goes through scheduleLongTimer's persisted task instead.
   const activeTimers = new Map(); // message id of the timer message -> interval handle
 
   function clearAllTimers() {
@@ -1247,25 +1298,28 @@ export async function startSession(userId, phoneNumber) {
       await sock.sendMessage(msg.key.remoteJid, { text: 'Longest timer is 24 hours.' }, { quoted: msg });
       return;
     }
+    // Too long to keep one message ticking (see TIMER_EDIT_WINDOW_MS), so
+    // don't pretend to: confirm now, and let the persisted scheduler
+    // deliver a fresh message when it's actually up.
+    if (durationMs > TIMER_EDIT_WINDOW_MS) {
+      await scheduleLongTimer(userId, sock, msg, durationMs);
+      return;
+    }
+
     if (activeTimers.size >= MAX_CONCURRENT_TIMERS) {
       await sock.sendMessage(
         msg.key.remoteJid,
-        { text: `Only ${MAX_CONCURRENT_TIMERS} timers can run at once -- wait for one to finish first.` },
+        { text: `Only ${MAX_CONCURRENT_TIMERS} live countdowns can run at once -- wait for one to finish first.` },
         { quoted: msg },
       );
       return;
     }
 
-    const isAnimated = durationMs <= ANIMATED_TIMER_MAX_MS;
-    const tickMs = isAnimated
-      ? ANIMATED_TIMER_INTERVAL_MS
-      : Math.min(5 * 60000, Math.max(30000, Math.floor(durationMs / 20)));
+    const tickMs = durationMs <= LIVE_TIMER_MAX_MS ? LIVE_TIMER_INTERVAL_MS : SPARSE_TIMER_INTERVAL_MS;
     const endsAt = Date.now() + durationMs;
 
     const renderTimer = (remainingMs) =>
-      isAnimated
-        ? `⏳ ${formatTimerRemaining(remainingMs)}\n${buildTimerProgressBar(remainingMs / durationMs)}`
-        : `⏳ ${formatTimerRemaining(remainingMs)} remaining`;
+      `${formatTimerEmoji(remainingMs)}\n${buildTimerProgressBar(remainingMs / durationMs)}`;
 
     let sent;
     try {
@@ -1277,32 +1331,79 @@ export async function startSession(userId, phoneNumber) {
     const timerId = sent?.key?.id;
     if (!timerId) return; // nothing to edit going forward -- not worth starting a loop for
 
+    function stopTimer() {
+      clearInterval(activeTimers.get(timerId));
+      activeTimers.delete(timerId);
+    }
+
     // Guards against overlapping ticks: an edit taking longer than tickMs
-    // (unlikely at 5s+, but not impossible under load) would otherwise let
-    // setInterval fire the next tick before the current one's await
-    // resolves.
+    // (much more likely now that the shortest tier ticks every second)
+    // would otherwise let setInterval fire the next tick before the
+    // current one's await resolves.
     let ticking = false;
+    // One failed edit shouldn't kill the whole countdown -- a single
+    // dropped tick is invisible (the next one shows the right time
+    // anyway), whereas giving up on the first error leaves a frozen
+    // clock. Only a sustained run of failures means it's really broken.
+    let consecutiveFailures = 0;
     const handle = setInterval(async () => {
       if (ticking) return;
       ticking = true;
       try {
         const remaining = endsAt - Date.now();
         if (remaining <= 0) {
-          clearInterval(activeTimers.get(timerId));
-          activeTimers.delete(timerId);
-          await sock.sendMessage(msg.key.remoteJid, { text: "⏰ Time's up!", edit: sent.key });
+          stopTimer();
+          await sock.sendMessage(msg.key.remoteJid, { text: `${formatTimerEmoji(0)}\n⏰ Time's up!`, edit: sent.key });
           return;
         }
         await sock.sendMessage(msg.key.remoteJid, { text: renderTimer(remaining), edit: sent.key });
+        consecutiveFailures = 0;
       } catch (err) {
-        console.error(`[${userId}] !timer tick failed:`, err.message);
-        clearInterval(activeTimers.get(timerId));
-        activeTimers.delete(timerId);
+        consecutiveFailures += 1;
+        console.error(
+          `[${userId}] !timer tick failed (${consecutiveFailures}/${MAX_TIMER_TICK_FAILURES}):`,
+          err.message,
+        );
+        if (consecutiveFailures >= MAX_TIMER_TICK_FAILURES) stopTimer();
       } finally {
         ticking = false;
       }
     }, tickMs);
     activeTimers.set(timerId, handle);
+  }
+
+  // Anything past WhatsApp's edit window. Persisted as a ScheduledTask
+  // (see scheduler.js's timer_done handler) rather than an in-memory
+  // setTimeout, because this session's socket reconnects routinely and
+  // clearAllTimers() on 'close' would silently eat every pending long
+  // timer each time it did.
+  async function scheduleLongTimer(userId, sock, msg, durationMs) {
+    const spelled = formatTimerWords(durationMs);
+    try {
+      await createScheduledTask({
+        sessionId: userId,
+        type: 'timer_done',
+        payload: { jid: msg.key.remoteJid, duration: spelled },
+        runAt: new Date(Date.now() + durationMs).toISOString(),
+      });
+    } catch (err) {
+      console.error(`[${userId}] !timer failed to schedule:`, describeFetchError(err));
+      await sock.sendMessage(
+        msg.key.remoteJid,
+        { text: "Couldn't set that timer right now -- try again?" },
+        { quoted: msg },
+      );
+      return;
+    }
+    await sock.sendMessage(
+      msg.key.remoteJid,
+      {
+        text:
+          `⏳ Timer set for ${spelled} -- I'll message you here when it's up.\n\n` +
+          "_No live countdown on this one: WhatsApp only lets a message be edited for 15 minutes after it's sent._",
+      },
+      { quoted: msg },
+    );
   }
 
   // "!status" -- owner-only readout of this session's own state: which

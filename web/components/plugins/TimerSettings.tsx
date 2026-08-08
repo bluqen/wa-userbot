@@ -30,10 +30,12 @@ export default function TimerSettings({
     <div className="space-y-4">
       <div className="rounded-lg border border-surface-border bg-surface p-3 text-xs text-slate-400">
         Anyone chatting with the bot can send{' '}
-        <code className="rounded bg-surface-raised px-1">!timer 5m</code> for a countdown.
-        Anything 10 minutes or under counts down live with a progress bar; longer timers (up to
-        24 hours) update every so often instead, so it doesn&apos;t spam the chat. Combine units
-        like <code className="rounded bg-surface-raised px-1">!timer 1h30m</code>, or just{' '}
+        <code className="rounded bg-surface-raised px-1">!timer 5m</code> for a countdown. Five
+        minutes or under ticks down live every second as an emoji clock; up to 14 minutes updates
+        every few seconds. Longer than that, WhatsApp stops allowing the message to be edited, so
+        the bot confirms the timer and sends a fresh &quot;time&apos;s up&quot; message when it
+        finishes (up to 24 hours) &mdash; those survive restarts. Combine units like{' '}
+        <code className="rounded bg-surface-raised px-1">!timer 1h30m</code>, or just{' '}
         <code className="rounded bg-surface-raised px-1">!timer 90s</code>.
       </div>
 

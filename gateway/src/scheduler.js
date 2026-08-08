@@ -19,6 +19,17 @@ const handlers = {
     await entry.sock.sendMessage(payload.jid, { text: payload.message });
     return true;
   },
+  // "!timer" for anything longer than WhatsApp's ~15 minute message-edit
+  // window (see whatsappManager.js's scheduleLongTimer) -- a live
+  // countdown is impossible past that, so the timer is just a persisted
+  // "ping this chat at runAt" instead. Persisted rather than an in-memory
+  // setTimeout so it survives the routine socket reconnects that would
+  // otherwise wipe it.
+  timer_done: async ({ payload }, entry) => {
+    const label = payload.duration ? ` (${payload.duration} timer)` : '';
+    await entry.sock.sendMessage(payload.jid, { text: `⏰ Time's up!${label}` });
+    return true;
+  },
 };
 
 async function runDueTasks(gatewayUrl) {

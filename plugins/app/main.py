@@ -108,8 +108,6 @@ async def handle_message(msg: IncomingMessage):
         except Exception as exc:
             print(f"[session:{msg.user_id}] failed to decode incoming sticker: {exc}")
 
-    print(f"[debug] incoming message from_jid={msg.from_jid!r} text={text!r} voice={is_voice} sticker={is_sticker}")
-
     if not text and not is_sticker:
         return ReplyResponse(reply=None)
 

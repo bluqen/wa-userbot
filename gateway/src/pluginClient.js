@@ -57,9 +57,6 @@ export async function forwardMessage({ userId, from, text, audio, sticker, fromM
   };
 }
 
-// Backs the owner-only "!ai" command -- a one-shot question, not the
-// ongoing AI Reply conversation flow. Returns null if no AI provider is
-// configured or the request otherwise failed to produce an answer.
 // Turns a plain-language "!ag ..." instruction into a plan of actions.
 // `actions` is this gateway's own capability catalog (see
 // buildAgentCatalog) -- the planner is told what it may emit rather than
@@ -84,6 +81,9 @@ export async function planAgentActions({ userId, instruction, actions }) {
   return { steps: data.steps || [], note: data.note || '', error: data.error || null };
 }
 
+// Backs the owner-only "!ai" command -- a one-shot question, not the
+// ongoing AI Reply conversation flow. Returns null if no AI provider is
+// configured or the request otherwise failed to produce an answer.
 export async function askAI({ userId, question }) {
   const res = await fetch(`${PLUGIN_ENGINE_URL}/ask`, {
     method: 'POST',

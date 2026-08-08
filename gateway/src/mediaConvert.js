@@ -170,7 +170,7 @@ export async function applyVoiceEffect(buffer, effectName) {
   });
 }
 
-// Named colors accepted by "/!qr <color> ..." -- deliberately a small fixed
+// Named colors accepted by "!qr <color> ..." -- deliberately a small fixed
 // allowlist rather than passing the user's word straight into the SVG's
 // fill attribute: an SVG string is XML, and an unvalidated attribute value
 // is an injection risk (e.g. a color argument like `red"/><script>...`

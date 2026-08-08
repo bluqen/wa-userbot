@@ -165,7 +165,8 @@ export const AGENT_ACTIONS = {
   },
 };
 
-export const AGENT_ACTION_NAMES = Object.keys(AGENT_ACTIONS);
+// Not exported -- only buildAgentCatalog (below, same file) needs it.
+const AGENT_ACTION_NAMES = Object.keys(AGENT_ACTIONS);
 
 // What gets sent to the planner so it knows the exact menu of things it
 // may emit. Derived, never hand-written -- see the note at the top.

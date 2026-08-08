@@ -48,6 +48,7 @@ import {
   generateQrCode,
   resolveQrColor,
   generateHelpBanner,
+  VOICE_EFFECT_NAMES,
 } from './mediaConvert.js';
 
 // Every command uses the same "!" starter -- used to be a mix of "/" (the
@@ -74,7 +75,10 @@ const GIF_CONVERT_COMMAND = /^!gif\b/i;
 // Fun commands: they only ever fired for messages from other people.
 const PLUGIN_COMMAND_RE = /^!(?:song|imagine|pinterest|meme|8ball|rps|trivia|translate|tl)\b/i;
 
-const VOICE_EFFECT_COMMAND = /^!(robot|deep|chipmunk|echo)\b/i;
+// Built from VOICE_EFFECT_NAMES (mediaConvert.js's own effect table) rather
+// than a hand-written "robot|deep|chipmunk|echo" so the two can't drift --
+// adding an effect there used to mean remembering to update this regex too.
+const VOICE_EFFECT_COMMAND = new RegExp(`^!(${VOICE_EFFECT_NAMES.join('|')})\\b`, 'i');
 const QR_COMMAND = /^!qr(?:\s+([\s\S]+))?$/i;
 const TIMER_COMMAND = /^!timer(?:\s+([\s\S]+))?$/i;
 const STATUS_COMMAND = /^!status(?:\s+(all))?$/i;
@@ -253,7 +257,7 @@ const HELP_SECTIONS = [
           '!rps rock|paper|scissors',
           '!trivia (answer with !trivia answer <letter>)',
           '!meme [subreddit]',
-          '!robot / !deep / !chipmunk / !echo -- reply to a voice note',
+          `!${VOICE_EFFECT_NAMES.join(' / !')} -- reply to a voice note`,
         ],
       },
     ],
@@ -541,8 +545,6 @@ async function downloadAnyMedia(msg, mediaType, mediaObj) {
   };
 }
 
-// Maps a cached/saved media entry back into the Baileys sendMessage content
-// shape needed to actually resend it (anti-delete recovery, note recall).
 // Plain-English name for a media type, for confirmations.
 function describeMediaKind(mediaType) {
   switch (mediaType) {
@@ -555,6 +557,8 @@ function describeMediaKind(mediaType) {
   }
 }
 
+// Maps a cached/saved media entry back into the Baileys sendMessage content
+// shape needed to actually resend it (anti-delete recovery, note recall).
 export function buildOutgoingMediaContent({ mediaType, buffer, mimetype, caption, fileName, ptt }) {
   switch (mediaType) {
     case 'imageMessage':
@@ -583,54 +587,17 @@ function deriveAntiDeleteConfig(plugins) {
   return { enabled: true, includeGroups: entry.settings?.includeGroups !== false };
 }
 
-function deriveNotesConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'notes');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveBroadcastConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'broadcast');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveTagAllConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'tagall');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function derivePollsConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'polls');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveStatusViewConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'statusview');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveAiAskConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'ai_ask');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveMediaConvertConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'media_convert');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveStatusConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'session_status');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveAnimateConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'emoji_animate');
-  return { enabled: !!(entry && entry.enabled) };
-}
-
-function deriveAgentConfig(plugins) {
-  const entry = plugins.find((p) => p.key === 'agent');
-  return { enabled: !!(entry && entry.enabled) };
+// Shared by every plugin that has nothing to configure beyond on/off --
+// notes, broadcast, tagall, polls, statusview, ai_ask, media_convert,
+// session_status, emoji_animate, agent. Each used to be its own
+// four-line deriveXConfig(plugins) wrapper differing only in the key
+// string; collapsed into one lookup rather than ten copies of the same
+// find(). Anything with real settings beyond `enabled` (anti_delete,
+// scheduled_send, games, qr, timer, sudo, welcome, antilink) still needs
+// its own deriveXConfig and keeps one below.
+function pluginEnabled(plugins, key) {
+  const entry = plugins.find((p) => p.key === key);
+  return !!(entry && entry.enabled);
 }
 
 function deriveScheduledSendConfig(plugins) {
@@ -1090,7 +1057,7 @@ async function handleVoiceEffectCommand(userId, sock, msg, effectName) {
   if (!quotedAudio) {
     await sock.sendMessage(
       msg.key.remoteJid,
-      { text: `Reply to a voice note with /${effectName} to apply the effect.` },
+      { text: `Reply to a voice note with !${effectName} to apply the effect.` },
       { quoted: msg },
     );
     return;
@@ -1122,7 +1089,7 @@ async function handleVoiceEffectCommand(userId, sock, msg, effectName) {
       { quoted: msg },
     );
   } catch (err) {
-    console.error(`[${userId}] /${effectName} failed:`, describeFetchError(err));
+    console.error(`[${userId}] !${effectName} failed:`, describeFetchError(err));
     await sock.sendMessage(msg.key.remoteJid, { text: `Couldn't apply that effect: ${err.message}` }, { quoted: msg });
   }
 }
@@ -2755,8 +2722,8 @@ export async function startSession(userId, phoneNumber) {
       // this special broadcast JID -- marking them read is what makes
       // them show as "viewed" to whoever posted it.
       if (msg.key.remoteJid === 'status@broadcast' && !msg.key.fromMe) {
-        const statusView = deriveStatusViewConfig(await refreshPluginConfigs());
-        if (statusView.enabled) {
+        const statusViewEnabled = pluginEnabled(await refreshPluginConfigs(), 'statusview');
+        if (statusViewEnabled) {
           try {
             await sock.readMessages([msg.key]);
           } catch (err) {
@@ -2860,12 +2827,12 @@ export async function startSession(userId, phoneNumber) {
         const sudo = deriveSudoConfig(await refreshPluginConfigs());
         if (sudo.enabled && sudo.numbers.includes(senderPhone)) {
           const sudoTagAllMatch = text.match(TAG_ALL_COMMAND);
-          if (sudoTagAllMatch && deriveTagAllConfig(await refreshPluginConfigs()).enabled) {
+          if (sudoTagAllMatch && pluginEnabled(await refreshPluginConfigs(), 'tagall')) {
             await handleTagAllCommand(userId, sock, msg, sudoTagAllMatch[1]);
             continue;
           }
           const sudoPollMatch = text.match(POLL_COMMAND);
-          if (sudoPollMatch && derivePollsConfig(await refreshPluginConfigs()).enabled) {
+          if (sudoPollMatch && pluginEnabled(await refreshPluginConfigs(), 'polls')) {
             await handlePollCommand(userId, sock, msg, sudoPollMatch[1]);
             continue;
           }
@@ -2957,8 +2924,8 @@ export async function startSession(userId, phoneNumber) {
 
         const statusMatch = text.match(STATUS_COMMAND);
         if (statusMatch) {
-          const status = deriveStatusConfig(await refreshPluginConfigs());
-          if (status.enabled) {
+          const statusEnabled = pluginEnabled(await refreshPluginConfigs(), 'session_status');
+          if (statusEnabled) {
             await handleStatusCommand(userId, sock, msg, (statusMatch[1] || '').toLowerCase());
             continue;
           }
@@ -2992,8 +2959,8 @@ export async function startSession(userId, phoneNumber) {
 
         const agentMatch = text.match(AGENT_COMMAND);
         if (agentMatch) {
-          const agentConfig = deriveAgentConfig(await refreshPluginConfigs());
-          if (agentConfig.enabled) {
+          const agentEnabled = pluginEnabled(await refreshPluginConfigs(), 'agent');
+          if (agentEnabled) {
             await handleAgentCommand(userId, sock, msg, agentMatch[1]);
             continue;
           }
@@ -3004,8 +2971,8 @@ export async function startSession(userId, phoneNumber) {
         // prose to rewrite.
         const animateMatch = text.match(ANIMATE_COMMAND);
         if (animateMatch) {
-          const animate = deriveAnimateConfig(await refreshPluginConfigs());
-          if (animate.enabled) {
+          const animateEnabled = pluginEnabled(await refreshPluginConfigs(), 'emoji_animate');
+          if (animateEnabled) {
             await handleEmojiAnimation(userId, sock, msg, animateMatch[1]);
             continue;
           }
@@ -3013,8 +2980,8 @@ export async function startSession(userId, phoneNumber) {
 
         const saveNoteMatch = text.match(SAVE_NOTE_COMMAND);
         if (saveNoteMatch) {
-          const notes = deriveNotesConfig(await refreshPluginConfigs());
-          if (notes.enabled) {
+          const notesEnabled = pluginEnabled(await refreshPluginConfigs(), 'notes');
+          if (notesEnabled) {
             await handleSaveNoteCommand(userId, sock, msg, saveNoteMatch[1]);
             continue;
           }
@@ -3022,8 +2989,8 @@ export async function startSession(userId, phoneNumber) {
 
         const addBroadcastMatch = text.match(ADD_BROADCAST_COMMAND);
         if (addBroadcastMatch) {
-          const broadcast = deriveBroadcastConfig(await refreshPluginConfigs());
-          if (broadcast.enabled) {
+          const broadcastEnabled = pluginEnabled(await refreshPluginConfigs(), 'broadcast');
+          if (broadcastEnabled) {
             await handleAddBroadcastCommand(userId, sock, msg, addBroadcastMatch[1]);
             continue;
           }
@@ -3031,8 +2998,8 @@ export async function startSession(userId, phoneNumber) {
 
         const tagAllMatch = text.match(TAG_ALL_COMMAND);
         if (tagAllMatch) {
-          const tagall = deriveTagAllConfig(await refreshPluginConfigs());
-          if (tagall.enabled) {
+          const tagallEnabled = pluginEnabled(await refreshPluginConfigs(), 'tagall');
+          if (tagallEnabled) {
             await handleTagAllCommand(userId, sock, msg, tagAllMatch[1]);
             continue;
           }
@@ -3040,8 +3007,8 @@ export async function startSession(userId, phoneNumber) {
 
         const pollMatch = text.match(POLL_COMMAND);
         if (pollMatch) {
-          const polls = derivePollsConfig(await refreshPluginConfigs());
-          if (polls.enabled) {
+          const pollsEnabled = pluginEnabled(await refreshPluginConfigs(), 'polls');
+          if (pollsEnabled) {
             await handlePollCommand(userId, sock, msg, pollMatch[1]);
             continue;
           }
@@ -3053,8 +3020,8 @@ export async function startSession(userId, phoneNumber) {
         // keeping the specific one first avoids relying on that.
         const aiAskEditMatch = text.match(AI_ASK_EDIT_COMMAND);
         if (aiAskEditMatch) {
-          const aiAsk = deriveAiAskConfig(await refreshPluginConfigs());
-          if (aiAsk.enabled) {
+          const aiAskEnabled = pluginEnabled(await refreshPluginConfigs(), 'ai_ask');
+          if (aiAskEnabled) {
             await handleAskCommand(userId, sock, msg, aiAskEditMatch[1], { editInPlace: true });
             continue;
           }
@@ -3062,16 +3029,16 @@ export async function startSession(userId, phoneNumber) {
 
         const aiAskMatch = text.match(AI_ASK_COMMAND);
         if (aiAskMatch) {
-          const aiAsk = deriveAiAskConfig(await refreshPluginConfigs());
-          if (aiAsk.enabled) {
+          const aiAskEnabled = pluginEnabled(await refreshPluginConfigs(), 'ai_ask');
+          if (aiAskEnabled) {
             await handleAskCommand(userId, sock, msg, aiAskMatch[1], { editInPlace: false });
             continue;
           }
         }
 
         if (STICKER_CONVERT_COMMAND.test(text) || IMG_CONVERT_COMMAND.test(text) || GIF_CONVERT_COMMAND.test(text)) {
-          const mediaConvert = deriveMediaConvertConfig(await refreshPluginConfigs());
-          if (mediaConvert.enabled) {
+          const mediaConvertEnabled = pluginEnabled(await refreshPluginConfigs(), 'media_convert');
+          if (mediaConvertEnabled) {
             const mode = STICKER_CONVERT_COMMAND.test(text) ? 'sticker' : IMG_CONVERT_COMMAND.test(text) ? 'img' : 'gif';
             await handleMediaConvertCommand(userId, sock, msg, mode);
             continue;
@@ -3085,16 +3052,16 @@ export async function startSession(userId, phoneNumber) {
         const noteRecallMatch = text.match(NOTE_RECALL_RE);
         if (noteRecallMatch) {
           const plugins = await refreshPluginConfigs();
-          const notes = deriveNotesConfig(plugins);
+          const notesEnabled = pluginEnabled(plugins, 'notes');
           // Without this, a "#name" that does nothing is completely silent:
           // the notes plugin being off, the config fetch having failed (so
           // every plugin looks off), and the note simply not existing all
           // look identical from the outside.
           console.log(
             `[${userId}] note recall "#${noteRecallMatch[1]}" in ${msg.key.remoteJid}: ` +
-              `notesEnabled=${notes.enabled} pluginsKnown=${plugins.length}`,
+              `notesEnabled=${notesEnabled} pluginsKnown=${plugins.length}`,
           );
-          if (notes.enabled) {
+          if (notesEnabled) {
             const handled = await handleNoteRecall(userId, sock, msg, noteRecallMatch[1], markAiSent);
             if (handled) continue;
           }
@@ -3137,9 +3104,15 @@ export async function startSession(userId, phoneNumber) {
           console.error(`[${userId}] ai_write dispatch failed:`, err.message);
         }
         } catch (err) {
-          // Temporary: full stack, not just err.message -- this is exactly
-          // the catch that was missing, so pinpointing the precise failing
-          // line matters more here than usual.
+          // This wraps the entire fromMe command cascade (savenote,
+          // savesticker, tagall, poll, !ai/!aie, media convert, !status,
+          // !help, !ag, !sm, !contacts, note recall, ai_write) -- unlike
+          // every other catch in this file, which handles one specific
+          // failure and can say what broke from context alone, this one
+          // needs the full stack (not just err.message) to say which of
+          // those actually failed. Without this catch at all, an uncaught
+          // exception here used to silently kill the whole messages.upsert
+          // callback for that message with nothing logged anywhere.
           console.error(`[${userId}] fromMe command dispatch failed:`, err.stack || err.message);
         }
         continue;
